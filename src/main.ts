@@ -48,12 +48,12 @@ Tài liệu Swagger này cung cấp đầy đủ thông tin về các endpoints,
 ---
 
 ### Danh mục Chức năng Nghiệp vụ:
-* 📚 **Books (Quản lý Sách & Kho Thư Viện)**: CRUD sách, tra cứu theo mã chuẩn quốc tế ISBN, tìm kiếm đa tiêu chí, theo dõi tồn kho \`copiesAvailable\` và vị trí kệ sách.
-* 🏷️ **Categories (Thể loại Sách)**: Quản lý danh mục thể loại, tự động thống kê số lượng sách thuộc thể loại.
-* ✍️ **Authors (Tác giả)**: Quản lý hồ sơ tác giả, tiểu sử, năm sinh và liên kết tác phẩm trong thư viện.
-* 👤 **Members (Độc giả & Thẻ Thư Viện)**: Đăng ký bạn đọc, tự sinh số thẻ (\`LIB-2026-XXXX\`), quản lý thời hạn thẻ và số lượng sách được phép mượn tối đa.
-* 🔄 **Borrowings (Mượn & Trả Sách)**: Tạo phiếu mượn, trả sách về kho, gia hạn thời gian mượn (tối đa 2 lần), tự động tính tiền phạt trễ hạn (5.000 VNĐ / ngày quá hạn).
-* 📊 **Dashboard & Statistics (Thống kê)**: Báo cáo chỉ số tổng quan thời gian thực: tổng sách, sách đang mượn, phiếu quá hạn, tiền phạt đã thu và top sách được mượn nhiều nhất.
+* **[Books] Quản lý Sách & Kho Thư Viện**: CRUD sách, tra cứu theo mã chuẩn quốc tế ISBN, tìm kiếm đa tiêu chí, theo dõi tồn kho \`copiesAvailable\` và vị trí kệ sách.
+* **[Categories] Thể loại Sách**: Quản lý danh mục thể loại, tự động thống kê số lượng sách thuộc thể loại.
+* **[Authors] Tác giả**: Quản lý hồ sơ tác giả, tiểu sử, năm sinh và liên kết tác phẩm trong thư viện.
+* **[Members] Độc giả & Thẻ Thư Viện**: Đăng ký bạn đọc, tự sinh số thẻ (\`LIB-2026-XXXX\`), quản lý thời hạn thẻ và số lượng sách được phép mượn tối đa.
+* **[Borrowings] Mượn & Trả Sách**: Tạo phiếu mượn, trả sách về kho, gia hạn thời gian mượn (tối đa 2 lần), tự động tính tiền phạt trễ hạn (5.000 VNĐ / ngày quá hạn).
+* **[Dashboard] Thống kê Báo cáo**: Báo cáo chỉ số tổng quan thời gian thực: tổng sách, sách đang mượn, phiếu quá hạn, tiền phạt đã thu và top sách được mượn nhiều nhất.
 
 ---
 
@@ -65,7 +65,7 @@ Tài liệu Swagger này cung cấp đầy đủ thông tin về các endpoints,
 * \`409 Conflict\`: Trùng lặp dữ liệu duy nhất (ISBN, Email) hoặc vi phạm ràng buộc toàn vẹn khi xóa dữ liệu.
     `)
     .setVersion('1.0.0')
-    .setContact('Librobe Library Team', 'https://github.com/librobe', 'contact@librobe.internal')
+    .setContact('Librobe Library Team', 'https://github.com/peggy2402/librobe', 'tranvanchien24022003@gmail.com')
     .addBearerAuth(
       {
         type: 'http',
@@ -106,11 +106,11 @@ Tài liệu Swagger này cung cấp đầy đủ thông tin về các endpoints,
   await app.listen(port, '0.0.0.0');
 
   console.log(`\n======================================================`);
-  console.log(`🚀 Hệ thống Quản lý Thư viện (Librobe) đang chạy tại:`);
-  console.log(`👉 Backend URL : http://localhost:${port}`);
-  console.log(`👉 Trang Quản Lý : http://localhost:${port}/admin`);
-  console.log(`👉 Swagger UI  : http://localhost:${port}/api/docs`);
-  console.log(`👉 Health Check: http://localhost:${port}/api/health`);
+  console.log(`[READY] Hệ thống Quản lý Thư viện (Librobe) đang chạy tại:`);
+  console.log(`- Backend URL  : http://localhost:${port}`);
+  console.log(`- Trang Quản Lý: http://localhost:${port}/admin`);
+  console.log(`- Swagger UI   : http://localhost:${port}/api/docs`);
+  console.log(`- Health Check : http://localhost:${port}/api/health`);
   console.log(`======================================================\n`);
 }
 await bootstrap();
