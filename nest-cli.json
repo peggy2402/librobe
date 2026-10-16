@@ -4,6 +4,6 @@
   "sourceRoot": "src",
   "entryFile": "main.js",
   "compilerOptions": {
-    "deleteOutDir": true
+    "deleteOutDir": false
   }
 }

@@ -1,0 +1,13 @@
+# Railway Nixpacks Configuration for Librobe (NestJS 12 + Node 22 + Prisma 6)
+
+[phases.setup]
+nixPkgs = ["nodejs_22", "openssl"]
+
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm run start:prod"
