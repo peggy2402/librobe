@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { Controller, Get, Res } from '@nestjs/common';
 import { ApiExcludeEndpoint, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
@@ -9,6 +10,12 @@ export class AppController {
   @ApiExcludeEndpoint()
   rootRedirect(@Res() res: Response) {
     return res.redirect('/admin');
+  }
+
+  @Get('admin')
+  @ApiExcludeEndpoint()
+  adminPage(@Res() res: Response) {
+    return res.sendFile(join(process.cwd(), 'public', 'index.html'));
   }
 
   @Get('dashboard')

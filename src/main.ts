@@ -29,11 +29,12 @@ async function bootstrap() {
 
   // Cấu hình phục vụ giao diện Web Trang Quản trị (Admin Management Dashboard)
   const publicPath = join(process.cwd(), 'public');
+  app.use(express.static(publicPath));
   app.use('/admin', express.static(publicPath));
 
-  // Thiết lập tiền tố toàn cục /api (loại trừ root / và /admin để phục vụ static & redirect)
+  // Thiết lập tiền tố toàn cục /api (loại trừ root /, /admin, /dashboard để phục vụ static & redirect)
   app.setGlobalPrefix('api', {
-    exclude: ['/', '/admin', '/admin/*'],
+    exclude: ['/', '/admin', '/admin/*', '/dashboard'],
   });
 
   // Thiết lập Swagger UI OpenAPI Documentation
