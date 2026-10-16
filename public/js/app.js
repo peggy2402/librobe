@@ -3,6 +3,9 @@
  */
 
 document.addEventListener('DOMContentLoaded', () => {
+  // 0. Khởi tạo UI Helpers (ESC key, Modal, Toast)
+  ui.init();
+
   // 1. Khởi tạo Auth
   auth.init();
 

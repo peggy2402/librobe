@@ -33,9 +33,12 @@ Skill này cung cấp các hướng dẫn chi tiết để AI Agent tuân thủ 
 - **Mobile Responsive**:
   - Breakpoints: Mobile (`max-width: 768px`), Tablet (`769px - 1024px`), Desktop (`> 1024px`).
   - Mobile có nút Hamburger Menu để trượt Sidebar ra vào.
-  - Table có thanh trượt ngang `overflow-x: auto; -webkit-overflow-scrolling: touch;`.
+  - **Desktop Table vs Mobile Card List**: Trên Desktop dùng `<table>` nhiều cột; trên Mobile (< 768px) tự động chuyển sang `.mobile-card-list` với các `.mobile-data-card` dạng khối card.
+  - **Desktop Center Modal vs Mobile Bottom Sheet**: Trên Desktop là popup căn giữa màn hình (đóng bằng phím `Esc` và click backdrop); trên Mobile chuyển thành Bottom Sheet trượt từ đáy lên với thanh kéo ngón tay.
+- **Confirmation Dialog**: Mọi thao tác sửa/xóa/đổi trạng thái phải qua `ui.confirm({ title, message })` gồm 2 nút "Hủy" và "Xác nhận".
 
 ## 2. Backend NestJS Standards
 - 100% logic nghiệp vụ nằm trong Service, Controller chỉ làm nhiệm vụ tiếp nhận HTTP request và validate DTO.
 - Mọi thao tác ghi dữ liệu đa thực thể phải dùng `prisma.$transaction(...)`.
 - Khóa bảo mật và credentials luôn đọc qua `process.env`.
+

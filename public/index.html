@@ -351,8 +351,8 @@
             </select>
           </div>
 
-          <!-- Books Table -->
-          <div class="table-responsive">
+          <!-- Books Table (Desktop) & Card List (Mobile) -->
+          <div class="table-responsive table-desktop-view">
             <table class="data-table">
               <thead>
                 <tr>
@@ -370,6 +370,8 @@
               </tbody>
             </table>
           </div>
+          <!-- Mobile Card List View -->
+          <div id="books-card-list" class="mobile-card-list"></div>
         </div>
 
         <!-- TAB 3: MƯỢN TRẢ -->
@@ -389,7 +391,8 @@
             </div>
           </div>
 
-          <div class="table-responsive">
+          <!-- Borrowings Table (Desktop) & Card List (Mobile) -->
+          <div class="table-responsive table-desktop-view">
             <table class="data-table">
               <thead>
                 <tr>
@@ -407,6 +410,8 @@
               </tbody>
             </table>
           </div>
+          <!-- Mobile Card List View -->
+          <div id="borrowings-card-list" class="mobile-card-list"></div>
         </div>
 
         <!-- TAB 4: ĐỘC GIẢ -->
@@ -426,12 +431,13 @@
             </div>
           </div>
 
-          <div class="table-responsive">
+          <!-- Members Table (Desktop) & Card List (Mobile) -->
+          <div class="table-responsive table-desktop-view">
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>Số Thẻ</th>
-                  <th>Họ Tên</th>
+                  <th>Mã Thẻ</th>
+                  <th>Họ và Tên</th>
                   <th>Liên Hệ</th>
                   <th>Đang Mượn</th>
                   <th>Trạng Thái</th>
@@ -443,6 +449,8 @@
               </tbody>
             </table>
           </div>
+          <!-- Mobile Card List View -->
+          <div id="members-card-list" class="mobile-card-list"></div>
         </div>
       </main>
     </div>
@@ -455,6 +463,7 @@
   <!-- Modal 1: Thêm Sách Mới -->
   <div id="modal-new-book" class="modal-backdrop">
     <div class="modal-dialog">
+      <div class="bottom-sheet-handle"></div>
       <div class="modal-header">
         <div class="modal-title">Thêm Đầu Sách Mới Vào Kho</div>
         <button class="modal-close" data-close-modal="modal-new-book">
@@ -517,6 +526,7 @@
   <!-- Modal 2: Tạo Phiếu Mượn Sách -->
   <div id="modal-new-borrow" class="modal-backdrop">
     <div class="modal-dialog">
+      <div class="bottom-sheet-handle"></div>
       <div class="modal-header">
         <div class="modal-title">Tạo Phiếu Mượn Sách</div>
         <button class="modal-close" data-close-modal="modal-new-borrow">
@@ -550,6 +560,7 @@
   <!-- Modal 3: Cấp Thẻ Độc Giả -->
   <div id="modal-new-member" class="modal-backdrop">
     <div class="modal-dialog">
+      <div class="bottom-sheet-handle"></div>
       <div class="modal-header">
         <div class="modal-title">Cấp Thẻ Độc Giả Mới</div>
         <button class="modal-close" data-close-modal="modal-new-member">
@@ -586,6 +597,178 @@
           <button type="submit" class="btn btn-primary">Cấp Thẻ Độc Giả</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Modal 4: Chi Tiết Đầu Sách (Book Details) -->
+  <div id="modal-book-details" class="modal-backdrop">
+    <div class="modal-dialog modal-dialog-lg">
+      <div class="bottom-sheet-handle"></div>
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10"/><path d="M6 10h10"/>
+          </svg>
+          <span>Thông Tin Chi Tiết Sách</span>
+        </div>
+        <button class="modal-close" data-close-modal="modal-book-details" title="Đóng (Esc)">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div style="display: flex; gap: var(--space-4); margin-bottom: var(--space-5); align-items: center;">
+          <div style="width: 56px; height: 56px; border-radius: var(--radius-lg); background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(99, 102, 241, 0.2)); display: flex; align-items: center; justify-content: center; color: var(--color-primary); flex-shrink: 0; border: 1px solid var(--border-hover);">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10"/><path d="M6 10h10"/>
+            </svg>
+          </div>
+          <div>
+            <h3 id="book-detail-title" style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">—</h3>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <span id="book-detail-status-badge"></span>
+              <span id="book-detail-category-badge" class="badge badge-secondary">—</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-grid">
+          <div class="detail-item">
+            <span class="detail-label">Mã Chuẩn Quốc Tế ISBN</span>
+            <span id="book-detail-isbn" class="detail-value detail-value-highlight">—</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Tác Giả</span>
+            <span id="book-detail-author" class="detail-value">—</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Nhà Xuất Bản</span>
+            <span id="book-detail-publisher" class="detail-value">—</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Năm Xuất Bản</span>
+            <span id="book-detail-year" class="detail-value">—</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Số Lượng Tồn Kho</span>
+            <span id="book-detail-copies" class="detail-value" style="font-weight: 700; color: #10b981;">—</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Vị Trí Giá Kệ</span>
+            <span id="book-detail-shelf" class="detail-value">—</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Ngày Nhập Kho</span>
+            <span id="book-detail-created" class="detail-value">—</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Cập Nhật Gần Nhất</span>
+            <span id="book-detail-updated" class="detail-value">—</span>
+          </div>
+        </div>
+
+        <div style="margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px dashed rgba(148, 163, 184, 0.15);">
+          <span class="detail-label">Tóm Tắt Giới Thiệu</span>
+          <p id="book-detail-desc" style="font-size: 0.875rem; color: var(--text-secondary); line-height: 1.6; margin-top: 6px;">Chưa có mô tả chi tiết cho đầu sách này.</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close-modal="modal-book-details">Đóng</button>
+        <button type="button" id="book-detail-borrow-btn" class="btn btn-secondary">Mượn Sách</button>
+        <button type="button" id="book-detail-edit-btn" class="btn btn-primary">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>
+          </svg>
+          <span>Thay Đổi Thông Tin</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 5: Chỉnh Sửa Thông Tin Sách -->
+  <div id="modal-edit-book" class="modal-backdrop">
+    <div class="modal-dialog">
+      <div class="bottom-sheet-handle"></div>
+      <div class="modal-header">
+        <div class="modal-title">Thay Đổi Thông Tin Sách</div>
+        <button class="modal-close" data-close-modal="modal-edit-book">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+      <form id="edit-book-form">
+        <input type="hidden" id="edit-book-id">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Tựa Đề Sách</label>
+            <input type="text" id="edit-book-title" class="form-control" required>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Tác Giả</label>
+              <select id="edit-book-author" class="form-control" required></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Thể Loại</label>
+              <select id="edit-book-category" class="form-control" required></select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Nhà Xuất Bản</label>
+              <input type="text" id="edit-book-publisher" class="form-control">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Năm Xuất Bản</label>
+              <input type="number" id="edit-book-year" class="form-control">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Tổng Số Bản In</label>
+              <input type="number" id="edit-book-copies" class="form-control" min="1" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Vị Trí Kệ Sách</label>
+              <input type="text" id="edit-book-shelf" class="form-control">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Mô Tả Nội Dung</label>
+            <textarea id="edit-book-desc" class="form-control" rows="3"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal="modal-edit-book">Hủy</button>
+          <button type="submit" class="btn btn-primary">Lưu Thay Đổi</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 6: Xác Nhận Dùng Chung (Universal Confirmation Dialog) -->
+  <div id="modal-confirm" class="modal-backdrop">
+    <div class="modal-dialog modal-dialog-sm">
+      <div class="bottom-sheet-handle"></div>
+      <div class="modal-header">
+        <div class="modal-title" style="color: #f87171;">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          <span id="confirm-modal-title">Xác nhận thay đổi</span>
+        </div>
+        <button class="modal-close" data-close-modal="modal-confirm" title="Đóng (Esc)">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p id="confirm-modal-message" style="font-size: 0.9375rem; color: var(--text-secondary); line-height: 1.5; margin: 0;">
+          Bạn có chắc chắn muốn thực hiện hành động này?
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="confirm-modal-cancel-btn" class="btn btn-secondary">Hủy</button>
+        <button type="button" id="confirm-modal-ok-btn" class="btn btn-danger">Xác Nhận</button>
+      </div>
     </div>
   </div>
 

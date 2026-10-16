@@ -72,10 +72,43 @@ const ui = {
     }, duration);
   },
 
+  modalStack: [],
+
+  init() {
+    // Global ESC key listener to close top-most modal
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        this.closeTopModal();
+      }
+    });
+
+    // Close on backdrop click and [data-close-modal]
+    document.addEventListener('click', (e) => {
+      const closeTarget = e.target.closest('[data-close-modal]');
+      if (closeTarget) {
+        const modalId = closeTarget.getAttribute('data-close-modal');
+        this.closeModal(modalId);
+        return;
+      }
+
+      if (e.target.classList.contains('modal-backdrop')) {
+        this.closeModal(e.target.id);
+      }
+    });
+  },
+
   openModal(modalId) {
     const modal = document.getElementById(modalId);
     if (modal) {
       modal.classList.add('active');
+      if (!this.modalStack.includes(modalId)) {
+        this.modalStack.push(modalId);
+      }
+      // Focus first input if available
+      const firstInput = modal.querySelector('input:not([type="hidden"]), select, textarea');
+      if (firstInput) {
+        setTimeout(() => firstInput.focus(), 100);
+      }
     }
   },
 
@@ -83,12 +116,103 @@ const ui = {
     const modal = document.getElementById(modalId);
     if (modal) {
       modal.classList.remove('active');
+      this.modalStack = this.modalStack.filter((id) => id !== modalId);
+      if (modal._onCancelResolve) {
+        modal._onCancelResolve(false);
+        modal._onCancelResolve = null;
+      }
+    }
+  },
+
+  closeTopModal() {
+    if (this.modalStack.length > 0) {
+      const topId = this.modalStack.pop();
+      const modal = document.getElementById(topId);
+      if (modal) {
+        modal.classList.remove('active');
+        if (modal._onCancelResolve) {
+          modal._onCancelResolve(false);
+          modal._onCancelResolve = null;
+        }
+      }
     }
   },
 
   closeAllModals() {
     document.querySelectorAll('.modal-backdrop').forEach((m) => {
       m.classList.remove('active');
+      if (m._onCancelResolve) {
+        m._onCancelResolve(false);
+        m._onCancelResolve = null;
+      }
+    });
+    this.modalStack = [];
+  },
+
+  /**
+   * Universal Confirmation Dialog with "Hủy" and "Xác nhận" buttons
+   * @param {Object} options
+   * @param {string} options.title - Tiêu đề xác nhận
+   * @param {string} options.message - Nội dung câu hỏi / cảnh báo
+   * @param {string} [options.confirmText] - Nhãn nút xác nhận (Mặc định: 'Xác nhận')
+   * @param {string} [options.cancelText] - Nhãn nút hủy (Mặc định: 'Hủy')
+   * @param {string} [options.confirmType] - 'danger' | 'primary' | 'warning'
+   * @returns {Promise<boolean>} Resolves true when confirmed, false when cancelled
+   */
+  confirm({
+    title = 'Xác nhận thay đổi',
+    message = 'Bạn có chắc chắn muốn thực hiện hành động này?',
+    confirmText = 'Xác nhận',
+    cancelText = 'Hủy',
+    confirmType = 'danger',
+  } = {}) {
+    return new Promise((resolve) => {
+      const modal = document.getElementById('modal-confirm');
+      const titleEl = document.getElementById('confirm-modal-title');
+      const msgEl = document.getElementById('confirm-modal-message');
+      const okBtn = document.getElementById('confirm-modal-ok-btn');
+      const cancelBtn = document.getElementById('confirm-modal-cancel-btn');
+
+      if (!modal || !okBtn || !cancelBtn) {
+        // Fallback if modal not present in DOM
+        const result = window.confirm(`${title}\n\n${message}`);
+        resolve(result);
+        return;
+      }
+
+      if (titleEl) titleEl.textContent = title;
+      if (msgEl) msgEl.textContent = message;
+      if (cancelBtn) cancelBtn.textContent = cancelText;
+
+      if (okBtn) {
+        okBtn.textContent = confirmText;
+        okBtn.className = `btn btn-${confirmType}`;
+      }
+
+      modal._onCancelResolve = resolve;
+
+      const handleConfirm = () => {
+        cleanup();
+        this.closeModal('modal-confirm');
+        resolve(true);
+      };
+
+      const handleCancel = () => {
+        cleanup();
+        this.closeModal('modal-confirm');
+        resolve(false);
+      };
+
+      const cleanup = () => {
+        okBtn.removeEventListener('click', handleConfirm);
+        cancelBtn.removeEventListener('click', handleCancel);
+        modal._onCancelResolve = null;
+      };
+
+      okBtn.addEventListener('click', handleConfirm, { once: true });
+      cancelBtn.addEventListener('click', handleCancel, { once: true });
+
+      this.openModal('modal-confirm');
     });
   },
 

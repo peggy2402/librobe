@@ -4,7 +4,7 @@
 ---
 
 ## 1. TUYỆT ĐỐI KHÔNG DÙNG ICON EMOJI (No Emojis Policy)
-- **Quy tắc**: Tuyệt đối không sử dụng ký tự biểu cảm emoji (ví dụ: 📚, 📊, 👤, 🔄, 🏷️, 🚀, 👉,...) trong cả giao diện người dùng (HTML, CSS, JS), thông báo toast, tài liệu UI, hay mã nguồn backend.
+- **Quy tắc**: Tuyệt đối không sử dụng ký tự biểu cảm emoji (như icon mặt cười, quyển sách, tên lửa, bàn tay chỉ hướng hay bất kỳ ký tự Unicode emoji nào) trong cả giao diện người dùng (HTML, CSS, JS), thông báo toast, tài liệu UI, hay mã nguồn backend.
 - **Giải pháp thay thế**: 
   - Sử dụng **SVG Icons inline** (sử dụng icon vector chuẩn như Lucide Icons, Heroicons hoặc SVG có `viewBox="0 0 24 24"`, `stroke="currentColor"`).
   - Sử dụng icon class hoặc CSS glyphs chuyên nghiệp.
@@ -55,3 +55,42 @@
 - **Bảo mật & Biến môi trường**:
   - Không bao giờ hardcode mật khẩu, secret key, chuỗi kết nối database trong code. Luôn đọc từ `process.env`.
   - Hashing mật khẩu bằng `bcryptjs` với salt round tối thiểu là 10.
+
+---
+
+## 6. QUY TẮC POPUP & MODAL (Desktop Esc Key & Backdrop Dismiss)
+- **Quy tắc**: Bất kỳ màn hình nào là popup / modal hiển thị ở giữa màn hình trên Desktop BẮT BUỘC phải:
+  - Cho phép người dùng nhấn **phím `Esc`** trên bàn phím để đóng/thoát nhanh lập tức.
+  - Cho phép click ra ngoài vùng backdrop nền tối để đóng modal.
+  - Luôn có nút icon "X" ở góc trên bên phải và nút "Đóng" ở chân modal (footer).
+
+---
+
+## 7. XÁC NHẬN KHI THAY ĐỔI THÔNG TIN (Confirmation Dialog Standard)
+- **Quy tắc**: Khi thực hiện bất kỳ thao tác nào làm thay đổi dữ liệu (Chỉnh sửa sách, Cập nhật thông tin độc giả, Trả sách, Gia hạn, Xóa dữ liệu...):
+  - BẮT BUỘC phải hiển thị một Modal Xác Nhận (Confirmation Dialog) hỏi lại người dùng trước khi gửi yêu cầu tới máy chủ.
+  - Modal xác nhận BẮT BUỘC phải có tối thiểu 2 nút rõ ràng:
+    - **Nút "Hủy"**: Đóng modal, không thực hiện hành động.
+    - **Nút "Xác nhận"**: Tiến hành thực thi thay đổi.
+  - Tuyệt đối không dùng hàm `window.confirm()` thô ráp của trình duyệt mà phải dùng UI Dialog đẹp mắt, đồng bộ của hệ thống.
+
+---
+
+## 8. RESPONSIVE MODAL: DESKTOP POPUP VS MOBILE BOTTOM SHEET
+- **Quy tắc**: Trải nghiệm xem chi tiết hoặc form trên thiết bị di động phải khác biệt so với máy tính bàn:
+  - **Trên Desktop (> 768px)**: Hiển thị dạng Popup căn giữa màn hình (`centered modal`) với hiệu ứng scale/fade nhẹ.
+  - **Trên Mobile (<= 768px)**: Tự động chuyển đổi thành **Bottom Sheet** trượt từ dưới đáy màn hình lên:
+    - Bo tròn góc phía trên (`border-radius: 20px 20px 0 0`).
+    - Có thanh kéo ngón tay (`pull indicator / drag handle`) ở đỉnh sheet.
+    - Chiếm từ 80% đến 90% chiều cao màn hình (`max-height: 88vh`), cuộn nội dung mượt mà.
+
+---
+
+## 9. RESPONSIVE DATA PRESENTATION: DESKTOP TABLE VS MOBILE CARD LIST
+- **Quy tắc**: Trình diễn danh sách dữ liệu phải tối ưu theo từng kích thước màn hình:
+  - **Trên Desktop (> 768px)**: Hiển thị dạng **Bảng dữ liệu (Table View)** nhiều cột, căn lề chuẩn, xem được tổng quan toàn bộ thông tin.
+  - **Trên Mobile (<= 768px)**: Ẩn bảng dữ liệu và BẮT BUỘC chuyển đổi thành **Dạng Thẻ Danh Sách (Card List View)**:
+    - Mỗi phần tử (Sách, Phiếu mượn, Độc giả) là một thẻ Card riêng biệt với padding thoáng đãng.
+    - Hiển thị đầy đủ thông tin nhận diện (Tiêu đề, mã định danh, badge trạng thái màu sắc, ngày tháng).
+    - Các nút hành động được thiết kế to bản, dễ bấm bằng ngón tay cái, không gây hiện tượng tràn ngang màn hình.
+
