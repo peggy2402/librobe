@@ -25,27 +25,51 @@ const icons = {
 const ui = {
   icons,
 
-  toast(message, type = 'info') {
-    const container = document.getElementById('toast-container');
-    if (!container) return;
+  toast(message, type = 'info', duration = 4500) {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'toast-container';
+      container.className = 'toast-container';
+      document.body.appendChild(container);
+    }
 
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
+    toast.setAttribute('role', 'alert');
     
     let iconSvg = icons.alert;
     if (type === 'success') iconSvg = icons.check;
+    if (type === 'info') iconSvg = icons.alert;
 
     toast.innerHTML = `
-      <div style="width: 20px; height: 20px; flex-shrink: 0;">${iconSvg}</div>
+      <div class="toast-icon">${iconSvg}</div>
       <div class="toast-message">${message}</div>
+      <button type="button" class="toast-close-btn" title="Đóng thông báo" aria-label="Đóng">
+        <svg style="width: 14px; height: 14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+        </svg>
+      </button>
     `;
+
+    const closeBtn = toast.querySelector('.toast-close-btn');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-10px)';
+        setTimeout(() => toast.remove(), 150);
+      });
+    }
 
     container.appendChild(toast);
 
     setTimeout(() => {
-      toast.style.animation = 'slideIn 200ms ease-out reverse';
-      setTimeout(() => toast.remove(), 200);
-    }, 3500);
+      if (toast.parentElement) {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-10px)';
+        setTimeout(() => toast.remove(), 200);
+      }
+    }, duration);
   },
 
   openModal(modalId) {

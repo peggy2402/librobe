@@ -19,12 +19,25 @@ const auth = {
       btn.addEventListener('click', () => this.handleLogout());
     });
 
+    // Clear error alert on input
+    const idInput = document.getElementById('login-identifier');
+    const passInput = document.getElementById('login-password');
+    const errorAlert = document.getElementById('login-error-alert');
+
+    const clearError = () => {
+      if (errorAlert) errorAlert.style.display = 'none';
+      idInput?.classList.remove('is-invalid');
+      passInput?.classList.remove('is-invalid');
+    };
+
+    idInput?.addEventListener('input', clearError);
+    passInput?.addEventListener('input', clearError);
+
     // Quick Fill Button for master admin (.env: ADMIN_USERNAME / ADMIN_PASSWORD)
     const quickFillBtn = document.getElementById('quick-fill-admin');
     if (quickFillBtn) {
       quickFillBtn.addEventListener('click', () => {
-        const idInput = document.getElementById('login-identifier');
-        const passInput = document.getElementById('login-password');
+        clearError();
         if (idInput && passInput) {
           idInput.value = 'chien';
           passInput.value = 'Chienhpt102$$';
@@ -36,8 +49,7 @@ const auth = {
     const quickFillDemoBtn = document.getElementById('quick-fill-demo');
     if (quickFillDemoBtn) {
       quickFillDemoBtn.addEventListener('click', () => {
-        const idInput = document.getElementById('login-identifier');
-        const passInput = document.getElementById('login-password');
+        clearError();
         if (idInput && passInput) {
           idInput.value = 'admin@librobe.com';
           passInput.value = 'Admin@123';
@@ -82,12 +94,27 @@ const auth = {
     const idInput = document.getElementById('login-identifier');
     const passInput = document.getElementById('login-password');
     const submitBtn = document.getElementById('login-submit-btn');
+    const errorAlert = document.getElementById('login-error-alert');
+    const errorText = document.getElementById('login-error-text');
+    const authCard = document.querySelector('.auth-card');
+
+    // Reset previous error state
+    if (errorAlert) errorAlert.style.display = 'none';
+    idInput?.classList.remove('is-invalid');
+    passInput?.classList.remove('is-invalid');
 
     const identifier = idInput?.value.trim();
     const password = passInput?.value;
 
     if (!identifier || !password) {
-      ui.toast('Vui lòng nhập tài khoản và mật khẩu', 'error');
+      const msg = 'Vui lòng nhập đầy đủ tài khoản và mật khẩu';
+      ui.toast(msg, 'error');
+      if (errorAlert && errorText) {
+        errorText.textContent = msg;
+        errorAlert.style.display = 'flex';
+      }
+      if (!identifier) idInput?.classList.add('is-invalid');
+      if (!password) passInput?.classList.add('is-invalid');
       return;
     }
 
@@ -117,7 +144,28 @@ const auth = {
       if (window.stats) window.stats.loadOverview();
       if (window.books) window.books.loadBooks();
     } catch (err) {
-      ui.toast(err.message || 'Đăng nhập không thành công', 'error');
+      const errorMsg = err.message || 'Tài khoản hoặc mật khẩu không chính xác';
+      
+      // Trigger Toast notification at top-right
+      ui.toast(errorMsg, 'error');
+
+      // Show inline error alert in auth card
+      if (errorAlert && errorText) {
+        errorText.textContent = errorMsg;
+        errorAlert.style.display = 'flex';
+      }
+
+      // Highlight input and focus
+      idInput?.classList.add('is-invalid');
+      passInput?.classList.add('is-invalid');
+      passInput?.focus();
+
+      // Trigger haptic/visual shake animation
+      if (authCard) {
+        authCard.classList.remove('shake');
+        void authCard.offsetWidth; // Force DOM reflow to re-trigger CSS animation
+        authCard.classList.add('shake');
+      }
     } finally {
       if (submitBtn) {
         submitBtn.disabled = false;

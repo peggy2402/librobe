@@ -128,3 +128,51 @@
   background: rgba(59, 130, 246, 0.3);
   color: #ffffff;
 }
+
+/* Inline Error Alert inside Auth Card */
+.auth-error-alert {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-left: 4px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  color: #fca5a5;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  animation: authAlertFade 200ms ease-out;
+}
+
+@keyframes authAlertFade {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.auth-error-alert svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--color-danger);
+}
+
+/* Shake Animation for failed login */
+.auth-card.shake {
+  animation: authShake 400ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes authShake {
+  10%, 90% { transform: translate3d(-2px, 0, 0); }
+  20%, 80% { transform: translate3d(4px, 0, 0); }
+  30%, 50%, 70% { transform: translate3d(-6px, 0, 0); }
+  40%, 60% { transform: translate3d(6px, 0, 0); }
+}
+
+/* Form Input Error Highlight */
+.form-control.is-invalid {
+  border-color: var(--color-danger) !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2) !important;
+}
+
