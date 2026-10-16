@@ -511,6 +511,10 @@
             </div>
           </div>
           <div class="form-group">
+            <label class="form-label">Ảnh Bìa Sách (Đường Dẫn URL Ảnh)</label>
+            <input type="url" id="book-form-cover" class="form-control" placeholder="https://images.unsplash.com/photo-...">
+          </div>
+          <div class="form-group">
             <label class="form-label">Mô Tả Nội Dung</label>
             <textarea id="book-form-desc" class="form-control" rows="3" placeholder="Tóm tắt giới thiệu cuốn sách..."></textarea>
           </div>
@@ -616,18 +620,22 @@
         </button>
       </div>
       <div class="modal-body">
-        <div style="display: flex; gap: var(--space-4); margin-bottom: var(--space-5); align-items: center;">
-          <div style="width: 56px; height: 56px; border-radius: var(--radius-lg); background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(99, 102, 241, 0.2)); display: flex; align-items: center; justify-content: center; color: var(--color-primary); flex-shrink: 0; border: 1px solid var(--border-hover);">
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10"/><path d="M6 10h10"/>
-            </svg>
+        <div class="book-detail-hero">
+          <div class="book-detail-cover-box">
+            <img id="book-detail-cover" class="book-detail-cover-img" src="" alt="Bìa sách" loading="lazy" style="display: none;">
+            <div id="book-detail-cover-fallback" class="book-detail-cover-fallback">
+              <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.75">
+                <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10"/><path d="M6 10h10"/>
+              </svg>
+            </div>
           </div>
-          <div>
-            <h3 id="book-detail-title" style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">—</h3>
-            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <div class="book-detail-header-info">
+            <h3 id="book-detail-title" class="book-detail-title">—</h3>
+            <div class="book-detail-badges">
               <span id="book-detail-status-badge"></span>
               <span id="book-detail-category-badge" class="badge badge-secondary">—</span>
             </div>
+            <div id="book-detail-quick-meta" class="book-detail-quick-meta"></div>
           </div>
         </div>
 
@@ -730,6 +738,10 @@
               <label class="form-label">Vị Trí Kệ Sách</label>
               <input type="text" id="edit-book-shelf" class="form-control">
             </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Ảnh Bìa Sách (Đường Dẫn URL Ảnh)</label>
+            <input type="url" id="edit-book-cover" class="form-control" placeholder="https://images.unsplash.com/photo-...">
           </div>
           <div class="form-group">
             <label class="form-label">Mô Tả Nội Dung</label>

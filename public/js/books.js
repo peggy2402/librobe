@@ -146,8 +146,22 @@ const books = {
         <tr class="clickable-table-row" onclick="books.handleRowClick(event, '${b.id}')" title="Nhấn để xem chi tiết cuốn sách">
           <td style="font-family: monospace; font-size: 0.8125rem; color: #94a3b8;">${b.isbn}</td>
           <td>
-            <div style="font-weight: 600; color: var(--text-primary);">${b.title}</div>
-            <div style="font-size: 0.75rem; color: var(--text-muted);">${b.publisher || 'NXB'} (${b.publishYear || '—'})</div>
+            <div class="book-table-item">
+              ${b.coverUrl ? `
+                <img src="${b.coverUrl}" class="book-table-cover" alt="${b.title}" loading="lazy" onerror="this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='flex';">
+                <div class="book-table-cover-fallback" style="display: none;">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10"/></svg>
+                </div>
+              ` : `
+                <div class="book-table-cover-fallback">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10"/></svg>
+                </div>
+              `}
+              <div>
+                <div style="font-weight: 600; color: var(--text-primary);">${b.title}</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">${b.publisher || 'NXB'} (${b.publishYear || '—'})</div>
+              </div>
+            </div>
           </td>
           <td>${b.authorName || '—'}</td>
           <td><span class="badge badge-secondary">${b.categoryName || '—'}</span></td>
@@ -170,11 +184,23 @@ const books = {
         cardList.innerHTML = list.map((b) => `
           <div class="mobile-data-card" onclick="books.openDetails('${b.id}')">
             <div class="mobile-card-header">
-              <div>
-                <div class="mobile-card-title">${b.title}</div>
-                <div class="mobile-card-subtitle">${b.authorName || '—'} · ${b.publishYear || '—'}</div>
+              <div style="display: flex; gap: var(--space-3); align-items: flex-start; flex: 1; min-width: 0;">
+                ${b.coverUrl ? `
+                  <img src="${b.coverUrl}" class="book-mobile-cover" alt="${b.title}" loading="lazy" onerror="this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='flex';">
+                  <div class="book-mobile-cover-fallback" style="display: none;">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10"/></svg>
+                  </div>
+                ` : `
+                  <div class="book-mobile-cover-fallback">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10"/></svg>
+                  </div>
+                `}
+                <div style="flex: 1; min-width: 0;">
+                  <div class="mobile-card-title">${b.title}</div>
+                  <div class="mobile-card-subtitle">${b.authorName || '—'} · ${b.publishYear || '—'}</div>
+                </div>
               </div>
-              <div>${ui.renderBadge(b.status, b.status === 'AVAILABLE' ? 'Sẵn sàng' : 'Hết sách')}</div>
+              <div style="flex-shrink: 0;">${ui.renderBadge(b.status, b.status === 'AVAILABLE' ? 'Sẵn sàng' : 'Hết sách')}</div>
             </div>
 
             <div class="mobile-card-body">
@@ -246,6 +272,9 @@ const books = {
     const descEl = document.getElementById('book-detail-desc');
     const statusBadge = document.getElementById('book-detail-status-badge');
     const categoryBadge = document.getElementById('book-detail-category-badge');
+    const coverImg = document.getElementById('book-detail-cover');
+    const coverFallback = document.getElementById('book-detail-cover-fallback');
+    const quickMeta = document.getElementById('book-detail-quick-meta');
 
     if (titleEl) titleEl.textContent = book.title;
     if (isbnEl) isbnEl.textContent = book.isbn;
@@ -257,6 +286,29 @@ const books = {
     if (createdEl) createdEl.textContent = ui.formatDate(book.createdAt);
     if (updatedEl) updatedEl.textContent = ui.formatDate(book.updatedAt);
     if (descEl) descEl.textContent = book.description || 'Chưa có thông tin mô tả chi tiết cho đầu sách này.';
+
+    if (quickMeta) {
+      const authorText = book.authorName || (book.author ? book.author.name : 'Chưa rõ tác giả');
+      const publisherText = book.publisher || 'NXB';
+      const yearText = book.publishYear || '—';
+      quickMeta.textContent = `${authorText} • ${publisherText} (${yearText})`;
+    }
+
+    // Hiển thị ảnh bìa sách
+    if (coverImg) {
+      if (book.coverUrl) {
+        coverImg.src = book.coverUrl;
+        coverImg.style.display = 'block';
+        if (coverFallback) coverFallback.style.display = 'none';
+        coverImg.onerror = () => {
+          coverImg.style.display = 'none';
+          if (coverFallback) coverFallback.style.display = 'flex';
+        };
+      } else {
+        coverImg.style.display = 'none';
+        if (coverFallback) coverFallback.style.display = 'flex';
+      }
+    }
 
     if (statusBadge) {
       statusBadge.innerHTML = ui.renderBadge(book.status, book.status === 'AVAILABLE' ? 'Sẵn sàng' : 'Hết sách');
@@ -281,6 +333,7 @@ const books = {
     const yearInput = document.getElementById('edit-book-year');
     const copiesInput = document.getElementById('edit-book-copies');
     const shelfInput = document.getElementById('edit-book-shelf');
+    const coverInput = document.getElementById('edit-book-cover');
     const descInput = document.getElementById('edit-book-desc');
 
     if (idInput) idInput.value = book.id;
@@ -291,6 +344,7 @@ const books = {
     if (yearInput) yearInput.value = book.publishYear || '';
     if (copiesInput) copiesInput.value = book.copiesTotal || 1;
     if (shelfInput) shelfInput.value = book.shelfLocation || '';
+    if (coverInput) coverInput.value = book.coverUrl || '';
     if (descInput) descInput.value = book.description || '';
 
     ui.openModal('modal-edit-book');
@@ -306,6 +360,7 @@ const books = {
     const publishYear = parseInt(document.getElementById('edit-book-year')?.value) || undefined;
     const copiesTotal = parseInt(document.getElementById('edit-book-copies')?.value) || undefined;
     const shelfLocation = document.getElementById('edit-book-shelf')?.value.trim();
+    const coverUrl = document.getElementById('edit-book-cover')?.value.trim() || undefined;
     const description = document.getElementById('edit-book-desc')?.value.trim();
 
     if (!id || !title) {
@@ -333,6 +388,7 @@ const books = {
         publishYear,
         copiesTotal,
         shelfLocation,
+        coverUrl,
         description,
       });
 
@@ -355,6 +411,7 @@ const books = {
     const publishYear = parseInt(document.getElementById('book-form-year')?.value) || 2026;
     const copiesTotal = parseInt(document.getElementById('book-form-copies')?.value) || 1;
     const shelfLocation = document.getElementById('book-form-shelf')?.value.trim();
+    const coverUrl = document.getElementById('book-form-cover')?.value.trim() || undefined;
     const description = document.getElementById('book-form-desc')?.value.trim();
 
     if (!isbn || !title || !authorId || !categoryId) {
@@ -372,6 +429,7 @@ const books = {
         publishYear,
         copiesTotal,
         shelfLocation,
+        coverUrl,
         description,
       });
 
