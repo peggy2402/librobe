@@ -3,585 +3,593 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Librobe - Bảng Điều Khiển Quản Lý Thư Viện Số</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📚</text></svg>">
-  <link rel="stylesheet" href="/admin/styles.css">
+  <title>Librobe - Hệ Thống Quản Trị Thư Viện</title>
+  
+  <!-- Google Fonts: Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Modular CSS Design System (Strict No-Emoji & 8pt Grid) -->
+  <link rel="stylesheet" href="/css/variables.css">
+  <link rel="stylesheet" href="/css/layout.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/auth.css">
 </head>
 <body>
-  <div class="app-layout">
-    <!-- SIDEBAR -->
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-icon">📚</div>
-        <div class="brand-text">
-          <h1>LIBROBE</h1>
-          <span>Library System</span>
+
+  <!-- ========================================================================= -->
+  <!-- 1. MÀN HÌNH ĐĂNG NHẬP QUẢN TRỊ (AUTH VIEW) -->
+  <!-- ========================================================================= -->
+  <div id="auth-wrapper" class="auth-wrapper">
+    <div class="auth-card">
+      <div class="auth-header">
+        <div class="auth-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+            <path d="M6 6h10"/>
+            <path d="M6 10h10"/>
+          </svg>
         </div>
+        <h1 class="auth-title">LIBROBE</h1>
+        <p class="auth-subtitle">Cổng Đăng Nhập Quản Trị Thư Viện Số</p>
       </div>
 
-      <nav class="nav-menu">
-        <div class="nav-category">Hệ Thống</div>
-        <a class="nav-item active" data-tab="tab-dashboard">
-          <span class="icon">📊</span>
-          <span>Tổng Quan</span>
+      <form id="login-form" class="auth-form">
+        <div class="form-group">
+          <label class="form-label">Tài khoản (Username / Email / SĐT)</label>
+          <input type="text" id="login-identifier" class="form-control" placeholder="chien hoặc admin@librobe.com" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Mật khẩu</label>
+          <input type="password" id="login-password" class="form-control" placeholder="••••••••••••" required>
+        </div>
+
+        <button type="submit" id="login-submit-btn" class="btn btn-primary" style="width: 100%; height: 44px; margin-top: 8px;">
+          Đăng Nhập Quản Trị
+        </button>
+      </form>
+
+      <!-- Hộp gợi ý tài khoản Master Admin (.env) -->
+      <div class="quick-login-box">
+        <div class="quick-login-title">
+          <span>Tài khoản cấu hình sẵn</span>
+          <span class="quick-login-badge">Biến Môi Trường</span>
+        </div>
+        <div class="quick-account-item">
+          <div>
+            <strong style="color: var(--text-primary);">Master Admin (.env)</strong>
+            <div style="font-size: 0.6875rem;">chien / Chienhpt102$$</div>
+          </div>
+          <button type="button" id="quick-fill-admin" class="quick-fill-btn">Điền nhanh</button>
+        </div>
+        <div class="quick-account-item">
+          <div>
+            <strong style="color: var(--text-primary);">Tài khoản Mẫu Database</strong>
+            <div style="font-size: 0.6875rem;">admin@librobe.com / Admin@123</div>
+          </div>
+          <button type="button" id="quick-fill-demo" class="quick-fill-btn">Điền nhanh</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 2. KHUNG ỨNG DỤNG QUẢN TRỊ CHÍNH (DASHBOARD APP LAYOUT) -->
+  <!-- ========================================================================= -->
+  <div id="app-layout" class="app-layout" style="display: none;">
+    <!-- Mobile Sidebar Backdrop -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <!-- SIDEBAR -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-header">
+        <a href="/admin" class="brand">
+          <div class="brand-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+              <path d="M6 6h10"/>
+              <path d="M6 10h10"/>
+            </svg>
+          </div>
+          <div>
+            <span class="brand-title">LIBROBE</span>
+            <span class="brand-subtitle">Library System</span>
+          </div>
+        </a>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-category">Tổng Quan</div>
+        <a class="nav-link active" data-tab="tab-dashboard">
+          <span class="icon">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>
+            </svg>
+          </span>
+          <span>Bảng Thống Kê</span>
         </a>
 
-        <div class="nav-category">Nghiệp Vụ</div>
-        <a class="nav-item" data-tab="tab-books">
-          <span class="icon">📖</span>
+        <div class="nav-category">Quản Lý Kho Sách</div>
+        <a class="nav-link" data-tab="tab-books">
+          <span class="icon">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10"/><path d="M6 10h10"/>
+            </svg>
+          </span>
           <span>Kho Sách</span>
         </a>
-        <a class="nav-item" data-tab="tab-borrowings">
-          <span class="icon">🔄</span>
-          <span>Mượn / Trả Sách</span>
-          <span class="badge" id="overdue-badge">0</span>
+
+        <div class="nav-category">Giao Dịch Thư Viện</div>
+        <a class="nav-link" data-tab="tab-borrowings">
+          <span class="icon">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/>
+            </svg>
+          </span>
+          <span>Mượn & Trả Sách</span>
         </a>
-        <a class="nav-item" data-tab="tab-members">
-          <span class="icon">🪪</span>
+
+        <a class="nav-link" data-tab="tab-members">
+          <span class="icon">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+            </svg>
+          </span>
           <span>Độc Giả & Thẻ</span>
         </a>
-        <a class="nav-item" data-tab="tab-categories">
-          <span class="icon">🏷️</span>
-          <span>Thể Loại & Tác Giả</span>
+
+        <div class="nav-category">Liên Kết Kỹ Thuật</div>
+        <a href="/api/docs" target="_blank" class="nav-link">
+          <span class="icon">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+          </span>
+          <span>Swagger API Docs</span>
         </a>
       </nav>
 
       <div class="sidebar-footer">
-        <a href="/api/docs" target="_blank" class="btn btn-secondary btn-sm" style="width: 100%; justify-content: center;">
-          ⚡ Mở Swagger API Docs
-        </a>
-        <div class="user-card" id="user-profile-box">
-          <div class="user-avatar" id="user-avatar">AD</div>
+        <div class="user-card">
+          <div class="user-avatar current-user-avatar">A</div>
           <div class="user-info">
-            <div class="user-name" id="user-display-name">Chưa đăng nhập</div>
-            <div class="user-role" id="user-display-role">Khách truy cập</div>
+            <div class="user-name current-user-name">Quản Trị Viên</div>
+            <div class="user-role current-user-role">ADMIN</div>
           </div>
-          <button class="btn btn-secondary btn-sm" id="btn-auth-action" onclick="openLoginModal()">Đăng nhập</button>
+          <button class="btn-logout" style="background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px;" title="Đăng xuất">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>
+            </svg>
+          </button>
         </div>
       </div>
     </aside>
 
-    <!-- MAIN CONTENT -->
+    <!-- MAIN VIEWPORT -->
     <div class="main-wrapper">
       <!-- TOPBAR -->
       <header class="topbar">
-        <div class="page-title">
-          <h2 id="topbar-title">Tổng Quan Thư Viện</h2>
-          <p id="topbar-desc">Dữ liệu thời gian thực đồng bộ trực tiếp từ Supabase PostgreSQL</p>
+        <div class="topbar-left">
+          <button id="mobile-menu-toggle" class="mobile-toggle" aria-label="Toggle navigation">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>
+            </svg>
+          </button>
+          <div style="font-weight: 700; font-size: 1.125rem; color: var(--text-primary);">
+            Bảng Quản Trị Thư Viện Số
+          </div>
         </div>
-        <div class="topbar-actions">
-          <button class="btn btn-secondary" onclick="refreshCurrentTab()">
-            🔄 Làm Mới
-          </button>
-          <button class="btn btn-primary" id="btn-quick-borrow" onclick="openBorrowModal()">
-            + Mượn Sách Mới
-          </button>
+
+        <div class="topbar-right">
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 0.75rem; color: #34d399; background: rgba(16, 185, 129, 0.1); padding: 4px 10px; border-radius: var(--radius-full);">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981;"></span>
+            <span>Supabase Online</span>
+          </div>
+          <button class="btn btn-secondary btn-sm btn-logout">Đăng Xuất</button>
         </div>
       </header>
 
-      <!-- CONTENT AREA -->
+      <!-- CONTENT BODY -->
       <main class="content-area">
-        <!-- ================= TAB: DASHBOARD ================= -->
-        <section class="tab-content active" id="tab-dashboard">
+        <!-- TAB 1: DASHBOARD -->
+        <div id="tab-dashboard" class="tab-pane active">
+          <div class="page-header">
+            <div>
+              <h2 class="page-title">Tổng Quan Hoạt Động</h2>
+              <p class="page-description">Báo cáo chỉ số vận hành kho sách và lượt mượn thời gian thực</p>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-secondary" onclick="stats.loadOverview()">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/>
+                </svg>
+                <span>Làm mới</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- KPI Grid -->
           <div class="stats-grid">
-            <div class="stat-card" style="--card-accent: var(--primary);">
-              <div class="stat-header">
-                <span class="stat-title">Đầu Sách</span>
-                <div class="stat-icon">📚</div>
+            <div class="stat-card">
+              <div class="stat-icon blue">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10"/>
+                </svg>
               </div>
-              <div class="stat-value" id="stat-total-books">--</div>
-              <div class="stat-footer">
-                <span id="stat-total-copies">-- bản in trong kho</span>
-              </div>
-            </div>
-
-            <div class="stat-card" style="--card-accent: var(--accent-cyan);">
-              <div class="stat-header">
-                <span class="stat-title">Đang Mượn</span>
-                <div class="stat-icon">📖</div>
-              </div>
-              <div class="stat-value" id="stat-active-loans">--</div>
-              <div class="stat-footer">
-                <span id="stat-borrowed-copies">-- cuốn đang lưu hành</span>
+              <div class="stat-info">
+                <div class="stat-label">Tổng Số Đầu Sách</div>
+                <div class="stat-value" id="stat-total-books">0</div>
               </div>
             </div>
 
-            <div class="stat-card" style="--card-accent: var(--accent-rose);">
-              <div class="stat-header">
-                <span class="stat-title">Quá Hạn Chót</span>
-                <div class="stat-icon">⚠️</div>
+            <div class="stat-card">
+              <div class="stat-icon amber">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/>
+                </svg>
               </div>
-              <div class="stat-value" id="stat-overdue-loans" style="color: var(--accent-rose);">--</div>
-              <div class="stat-footer">
-                <span>Cần nhắc nhở thu hồi</span>
-              </div>
-            </div>
-
-            <div class="stat-card" style="--card-accent: var(--accent-emerald);">
-              <div class="stat-header">
-                <span class="stat-title">Độc Giả Thư Viện</span>
-                <div class="stat-icon">👥</div>
-              </div>
-              <div class="stat-value" id="stat-total-members">--</div>
-              <div class="stat-footer">
-                <span id="stat-active-members">-- thẻ đang kích hoạt</span>
+              <div class="stat-info">
+                <div class="stat-label">Bản In Đang Mượn</div>
+                <div class="stat-value" id="stat-borrowed-books">0</div>
               </div>
             </div>
 
-            <div class="stat-card" style="--card-accent: var(--accent-amber);">
-              <div class="stat-header">
-                <span class="stat-title">Tiền Phạt Thu Về</span>
-                <div class="stat-icon">💰</div>
+            <div class="stat-card">
+              <div class="stat-icon green">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                </svg>
               </div>
-              <div class="stat-value" id="stat-fines-collected">0đ</div>
-              <div class="stat-footer">
-                <span id="stat-fines-total">Tổng nợ: 0đ</span>
+              <div class="stat-info">
+                <div class="stat-label">Độc Giả Hoạt Động</div>
+                <div class="stat-value" id="stat-active-members">0</div>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon indigo">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                </svg>
+              </div>
+              <div class="stat-info">
+                <div class="stat-label">Tiền Phạt Đã Thu</div>
+                <div class="stat-value" id="stat-fines-collected">0 ₫</div>
               </div>
             </div>
           </div>
 
-          <!-- Top Borrowed Books & Overdue Table -->
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
-            <div class="card-panel">
-              <div class="panel-header">
-                <div class="panel-title">
-                  <span>🔥</span>
-                  <h3>Top Sách Mượn Nhiều Nhất</h3>
-                </div>
+          <!-- Dual Tables Grid -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: var(--space-5);">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">Top Sách Mượn Nhiều Nhất</div>
               </div>
               <div class="table-responsive">
-                <table>
+                <table class="data-table">
                   <thead>
                     <tr>
-                      <th>Tựa Đề Cuốn Sách</th>
-                      <th>Tác Giả</th>
+                      <th>#</th>
+                      <th>Tựa Đề</th>
                       <th>Lượt Mượn</th>
+                      <th>Trạng Thái</th>
                     </tr>
                   </thead>
-                  <tbody id="top-books-body">
-                    <tr><td colspan="3" style="text-align: center;">Đang tải dữ liệu...</td></tr>
+                  <tbody id="top-books-tbody">
+                    <tr><td colspan="4" style="text-align: center; padding: 24px; color: var(--text-muted);">Đang tải...</td></tr>
                   </tbody>
                 </table>
               </div>
             </div>
 
-            <div class="card-panel">
-              <div class="panel-header">
-                <div class="panel-title">
-                  <span>⚠️</span>
-                  <h3>Sách Đang Bị Quá Hạn</h3>
-                </div>
-                <button class="btn btn-secondary btn-sm" onclick="switchTab('tab-borrowings')">Xem Tất Cả</button>
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">Cảnh Báo Quá Hạn Cần Thu Hồi</div>
               </div>
               <div class="table-responsive">
-                <table>
+                <table class="data-table">
                   <thead>
                     <tr>
                       <th>Mã Phiếu</th>
+                      <th>Tên Sách</th>
                       <th>Độc Giả</th>
-                      <th>Hạn Trả</th>
-                      <th>Tiền Phạt</th>
+                      <th>Trạng Thái</th>
+                      <th>Phạt</th>
                     </tr>
                   </thead>
-                  <tbody id="dashboard-overdue-body">
-                    <tr><td colspan="4" style="text-align: center;">Đang kiểm tra...</td></tr>
+                  <tbody id="overdue-loans-tbody">
+                    <tr><td colspan="5" style="text-align: center; padding: 24px; color: var(--text-muted);">Đang tải...</td></tr>
                   </tbody>
                 </table>
               </div>
             </div>
           </div>
-        </section>
+        </div>
 
-        <!-- ================= TAB: BOOKS ================= -->
-        <section class="tab-content" id="tab-books">
-          <div class="card-panel">
-            <div class="panel-header">
-              <div class="filter-bar">
-                <input type="text" class="search-input" id="book-search-input" placeholder="Tìm theo tên, ISBN, tác giả..." oninput="handleBookSearch()">
-                <select class="select-input" id="book-category-filter" onchange="loadBooks()">
-                  <option value="">Tất cả thể loại</option>
-                </select>
-                <select class="select-input" id="book-status-filter" onchange="loadBooks()">
-                  <option value="">Tất cả trạng thái</option>
-                  <option value="AVAILABLE">Có sẵn</option>
-                  <option value="OUT_OF_STOCK">Hết hàng</option>
-                </select>
-              </div>
-              <button class="btn btn-primary" onclick="openCreateBookModal()">+ Thêm Sách Mới</button>
+        <!-- TAB 2: KHO SÁCH -->
+        <div id="tab-books" class="tab-pane">
+          <div class="page-header">
+            <div>
+              <h2 class="page-title">Kho Sách Thư Viện</h2>
+              <p class="page-description">Quản lý danh mục đầu sách, số lượng tồn kho và vị trí giá kệ</p>
             </div>
-
-            <div class="table-responsive">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Thông Tin Sách</th>
-                    <th>Thể Loại</th>
-                    <th>ISBN</th>
-                    <th>Vị Trí Kệ</th>
-                    <th>Tồn Kho</th>
-                    <th>Trạng Thái</th>
-                    <th>Thao Tác</th>
-                  </tr>
-                </thead>
-                <tbody id="books-table-body">
-                  <tr><td colspan="7" style="text-align: center;">Đang tải danh sách sách...</td></tr>
-                </tbody>
-              </table>
+            <div class="page-actions">
+              <button class="btn btn-primary" data-open-modal="modal-new-book">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M5 12h14"/><path d="M12 5v14"/>
+                </svg>
+                <span>Thêm Sách Mới</span>
+              </button>
             </div>
           </div>
-        </section>
 
-        <!-- ================= TAB: BORROWINGS ================= -->
-        <section class="tab-content" id="tab-borrowings">
-          <div class="card-panel">
-            <div class="panel-header">
-              <div class="filter-bar">
-                <input type="text" class="search-input" id="borrow-search-input" placeholder="Tìm theo độc giả, sách, mã..." oninput="handleBorrowSearch()">
-                <select class="select-input" id="borrow-status-filter" onchange="loadBorrowings()">
-                  <option value="">Tất cả trạng thái</option>
-                  <option value="BORROWED">Đang mượn</option>
-                  <option value="OVERDUE">Quá hạn</option>
-                  <option value="RETURNED">Đã hoàn trả</option>
-                </select>
+          <!-- Filter Bar -->
+          <div class="filter-bar">
+            <div class="search-input-wrapper">
+              <div class="search-icon">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+                </svg>
               </div>
-              <button class="btn btn-primary" onclick="openBorrowModal()">+ Tạo Phiếu Mượn</button>
+              <input type="text" id="books-search-input" class="search-input" placeholder="Tìm theo tiêu đề, tác giả, ISBN, vị trí...">
             </div>
+            <select id="books-category-filter" class="form-control" style="width: auto; min-width: 180px;">
+              <option value="">Tất cả thể loại</option>
+            </select>
+          </div>
 
-            <div class="table-responsive">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Mã Phiếu</th>
-                    <th>Độc Giả</th>
-                    <th>Cuốn Sách</th>
-                    <th>Ngày Mượn</th>
-                    <th>Hạn Trả</th>
-                    <th>Gia Hạn</th>
-                    <th>Tiền Phạt</th>
-                    <th>Trạng Thái</th>
-                    <th>Hành Động</th>
-                  </tr>
-                </thead>
-                <tbody id="borrowings-table-body">
-                  <tr><td colspan="9" style="text-align: center;">Đang tải danh sách mượn trả...</td></tr>
-                </tbody>
-              </table>
+          <!-- Books Table -->
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Mã ISBN</th>
+                  <th>Tựa Đề & Xuất Bản</th>
+                  <th>Tác Giả</th>
+                  <th>Thể Loại</th>
+                  <th>Tồn Kho</th>
+                  <th>Trạng Thái</th>
+                  <th>Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody id="books-tbody">
+                <tr><td colspan="7" style="text-align: center; padding: 32px; color: var(--text-muted);">Đang tải kho sách...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB 3: MƯỢN TRẢ -->
+        <div id="tab-borrowings" class="tab-pane">
+          <div class="page-header">
+            <div>
+              <h2 class="page-title">Nhật Ký Mượn / Trả Sách</h2>
+              <p class="page-description">Theo dõi hạn trả sách, kiểm soát quá hạn và tự động tính tiền phạt</p>
+            </div>
+            <div class="page-actions">
+              <button class="btn btn-primary" data-open-modal="modal-new-borrow">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M5 12h14"/><path d="M12 5v14"/>
+                </svg>
+                <span>Tạo Phiếu Mượn</span>
+              </button>
             </div>
           </div>
-        </section>
 
-        <!-- ================= TAB: MEMBERS ================= -->
-        <section class="tab-content" id="tab-members">
-          <div class="card-panel">
-            <div class="panel-header">
-              <div class="filter-bar">
-                <input type="text" class="search-input" id="member-search-input" placeholder="Tìm theo tên, email, mã thẻ..." oninput="handleMemberSearch()">
-              </div>
-              <button class="btn btn-primary" onclick="openCreateMemberModal()">+ Đăng Ký Độc Giả Mới</button>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Mã Giao Dịch</th>
+                  <th>Tên Sách</th>
+                  <th>Độc Giả</th>
+                  <th>Thời Hạn</th>
+                  <th>Trạng Thái</th>
+                  <th>Tiền Phạt</th>
+                  <th>Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody id="borrowings-tbody">
+                <tr><td colspan="7" style="text-align: center; padding: 32px; color: var(--text-muted);">Đang tải phiếu mượn...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB 4: ĐỘC GIẢ -->
+        <div id="tab-members" class="tab-pane">
+          <div class="page-header">
+            <div>
+              <h2 class="page-title">Hồ Sơ Độc Giả</h2>
+              <p class="page-description">Quản lý thẻ thành viên, số lượng sách được phép mượn và hạn sử dụng thẻ</p>
             </div>
-
-            <div class="table-responsive">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Mã Thẻ</th>
-                    <th>Họ Và Tên</th>
-                    <th>Liên Hệ (Email & SĐT)</th>
-                    <th>Hạn Thẻ</th>
-                    <th>Đang Mượn / Hạn Mức</th>
-                    <th>Trạng Thái</th>
-                    <th>Thao Tác</th>
-                  </tr>
-                </thead>
-                <tbody id="members-table-body">
-                  <tr><td colspan="7" style="text-align: center;">Đang tải độc giả...</td></tr>
-                </tbody>
-              </table>
+            <div class="page-actions">
+              <button class="btn btn-primary" data-open-modal="modal-new-member">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M5 12h14"/><path d="M12 5v14"/>
+                </svg>
+                <span>Cấp Thẻ Mới</span>
+              </button>
             </div>
           </div>
-        </section>
 
-        <!-- ================= TAB: CATEGORIES & AUTHORS ================= -->
-        <section class="tab-content" id="tab-categories">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
-            <!-- Categories -->
-            <div class="card-panel">
-              <div class="panel-header">
-                <div class="panel-title">
-                  <span>🏷️</span>
-                  <h3>Danh Mục Thể Loại</h3>
-                </div>
-                <button class="btn btn-primary btn-sm" onclick="openCreateCategoryModal()">+ Thêm Thể Loại</button>
-              </div>
-              <div class="table-responsive">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Tên Thể Loại</th>
-                      <th>Số Đầu Sách</th>
-                      <th>Thao Tác</th>
-                    </tr>
-                  </thead>
-                  <tbody id="categories-table-body">
-                    <tr><td colspan="3" style="text-align: center;">Đang tải thể loại...</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <!-- Authors -->
-            <div class="card-panel">
-              <div class="panel-header">
-                <div class="panel-title">
-                  <span>✍️</span>
-                  <h3>Hồ Sơ Tác Giả</h3>
-                </div>
-                <button class="btn btn-primary btn-sm" onclick="openCreateAuthorModal()">+ Thêm Tác Giả</button>
-              </div>
-              <div class="table-responsive">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Tên Tác Giả</th>
-                      <th>Quốc Tịch</th>
-                      <th>Số Tác Phẩm</th>
-                      <th>Thao Tác</th>
-                    </tr>
-                  </thead>
-                  <tbody id="authors-table-body">
-                    <tr><td colspan="4" style="text-align: center;">Đang tải tác giả...</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Số Thẻ</th>
+                  <th>Họ Tên</th>
+                  <th>Liên Hệ</th>
+                  <th>Đang Mượn</th>
+                  <th>Trạng Thái</th>
+                  <th>Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody id="members-tbody">
+                <tr><td colspan="6" style="text-align: center; padding: 32px; color: var(--text-muted);">Đang tải độc giả...</td></tr>
+              </tbody>
+            </table>
           </div>
-        </section>
+        </div>
       </main>
     </div>
   </div>
 
-  <!-- ================= MODALS ================= -->
+  <!-- ========================================================================= -->
+  <!-- MODALS CONTAINER -->
+  <!-- ========================================================================= -->
 
-  <!-- Modal Đăng Nhập -->
-  <div class="modal-overlay" id="modal-login">
-    <div class="modal-content" style="max-width: 420px;">
+  <!-- Modal 1: Thêm Sách Mới -->
+  <div id="modal-new-book" class="modal-backdrop">
+    <div class="modal-dialog">
       <div class="modal-header">
-        <h3>Đăng Nhập Quản Trị</h3>
-        <button class="modal-close" onclick="closeModal('modal-login')">✕</button>
-      </div>
-      <form id="form-login" onsubmit="handleLoginSubmit(event)">
-        <div class="form-group">
-          <label class="form-label">Email hoặc Số điện thoại</label>
-          <input type="text" class="form-control" id="login-identifier" required placeholder="admin@librobe.com hoặc 0909000001">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Mật khẩu</label>
-          <input type="password" class="form-control" id="login-password" required placeholder="Admin@123">
-        </div>
-        <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; margin-top: 12px;">
-          Đăng Nhập
+        <div class="modal-title">Thêm Đầu Sách Mới Vào Kho</div>
+        <button class="modal-close" data-close-modal="modal-new-book">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
+      </div>
+      <form id="new-book-form">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Mã ISBN Quốc Tế</label>
+            <input type="text" id="book-form-isbn" class="form-control" placeholder="978-0132350884" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Tựa Đề Sách</label>
+            <input type="text" id="book-form-title" class="form-control" placeholder="Clean Architecture" required>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Tác Giả</label>
+              <select id="book-form-author" class="form-control" required></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Thể Loại</label>
+              <select id="book-form-category" class="form-control" required></select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Nhà Xuất Bản</label>
+              <input type="text" id="book-form-publisher" class="form-control" placeholder="NXB Khoa Học">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Năm Xuất Bản</label>
+              <input type="number" id="book-form-year" class="form-control" value="2026">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Số Lượng Bản In</label>
+              <input type="number" id="book-form-copies" class="form-control" value="5" min="1" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Vị Trí Kệ Sách</label>
+              <input type="text" id="book-form-shelf" class="form-control" placeholder="Kệ A1-02">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Mô Tả Nội Dung</label>
+            <textarea id="book-form-desc" class="form-control" rows="3" placeholder="Tóm tắt giới thiệu cuốn sách..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal="modal-new-book">Hủy</button>
+          <button type="submit" class="btn btn-primary">Lưu Vào Kho</button>
+        </div>
       </form>
     </div>
   </div>
 
-  <!-- Modal Mượn Sách -->
-  <div class="modal-overlay" id="modal-borrow">
-    <div class="modal-content">
+  <!-- Modal 2: Tạo Phiếu Mượn Sách -->
+  <div id="modal-new-borrow" class="modal-backdrop">
+    <div class="modal-dialog">
       <div class="modal-header">
-        <h3>Tạo Phiếu Mượn Sách Mới</h3>
-        <button class="modal-close" onclick="closeModal('modal-borrow')">✕</button>
-      </div>
-      <form id="form-borrow" onsubmit="handleBorrowSubmit(event)">
-        <div class="form-group">
-          <label class="form-label">Chọn Độc Giả</label>
-          <select class="form-control" id="borrow-select-member" required>
-            <option value="">-- Đang nạp danh sách độc giả --</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Chọn Cuốn Sách Cần Mượn</label>
-          <select class="form-control" id="borrow-select-book" required>
-            <option value="">-- Đang nạp danh mục sách --</option>
-          </select>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Thời hạn mượn (ngày)</label>
-            <input type="number" class="form-control" id="borrow-days" value="14" min="1" max="30" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Ghi chú phiếu</label>
-            <input type="text" class="form-control" id="borrow-notes" placeholder="Mượn nghiên cứu học tập">
-          </div>
-        </div>
-        <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; margin-top: 12px;">
-          Xác Nhận Xuất Kho & Tạo Phiếu Mượn
+        <div class="modal-title">Tạo Phiếu Mượn Sách</div>
+        <button class="modal-close" data-close-modal="modal-new-borrow">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
+      </div>
+      <form id="new-borrow-form">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Độc Giả</label>
+            <select id="borrow-form-member" class="form-control" required></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Sách Cần Mượn</label>
+            <select id="borrow-form-book" class="form-control" required></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Thời Gian Mượn (Số Ngày)</label>
+            <input type="number" id="borrow-form-days" class="form-control" value="14" min="1" max="60" required>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Quy chuẩn mặc định: 14 ngày. Phạt 5.000đ/ngày nếu trễ hạn.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal="modal-new-borrow">Hủy</button>
+          <button type="submit" class="btn btn-primary">Xác Nhận Mượn</button>
+        </div>
       </form>
     </div>
   </div>
 
-  <!-- Modal Thêm Sách -->
-  <div class="modal-overlay" id="modal-book">
-    <div class="modal-content">
+  <!-- Modal 3: Cấp Thẻ Độc Giả -->
+  <div id="modal-new-member" class="modal-backdrop">
+    <div class="modal-dialog">
       <div class="modal-header">
-        <h3 id="modal-book-title">Thêm Cuốn Sách Mới</h3>
-        <button class="modal-close" onclick="closeModal('modal-book')">✕</button>
-      </div>
-      <form id="form-book" onsubmit="handleBookSubmit(event)">
-        <input type="hidden" id="book-edit-id">
-        <div class="form-group">
-          <label class="form-label">Tựa đề cuốn sách *</label>
-          <input type="text" class="form-control" id="book-form-title" required placeholder="Nhập tựa đề sách">
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Mã ISBN *</label>
-            <input type="text" class="form-control" id="book-form-isbn" required placeholder="978-...">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Nhà xuất bản *</label>
-            <input type="text" class="form-control" id="book-form-publisher" required placeholder="NXB Trẻ">
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Tác Giả *</label>
-            <select class="form-control" id="book-form-author" required></select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Thể Loại *</label>
-            <select class="form-control" id="book-form-category" required></select>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Năm xuất bản *</label>
-            <input type="number" class="form-control" id="book-form-year" value="2026" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Tổng số lượng bản in *</label>
-            <input type="number" class="form-control" id="book-form-copies" value="5" min="1" required>
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Vị trí kệ sách *</label>
-          <input type="text" class="form-control" id="book-form-shelf" required placeholder="Kệ A2, Tầng 1">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Mô tả tóm tắt</label>
-          <textarea class="form-control" id="book-form-desc" placeholder="Tóm tắt nội dung cuốn sách..."></textarea>
-        </div>
-        <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; margin-top: 12px;">
-          Lưu Thông Tin Sách
+        <div class="modal-title">Cấp Thẻ Độc Giả Mới</div>
+        <button class="modal-close" data-close-modal="modal-new-member">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
+      </div>
+      <form id="new-member-form">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Họ và Tên</label>
+            <input type="text" id="member-form-name" class="form-control" placeholder="Nguyễn Văn A" required>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Email</label>
+              <input type="email" id="member-form-email" class="form-control" placeholder="a.nguyen@example.com" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Số Điện Thoại</label>
+              <input type="tel" id="member-form-phone" class="form-control" placeholder="0912345678" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Địa Chỉ Thường Trú</label>
+            <input type="text" id="member-form-address" class="form-control" placeholder="Hà Nội, Việt Nam">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Hạn Mức Sách Được Mượn Tối Đa</label>
+            <input type="number" id="member-form-limit" class="form-control" value="5" min="1" max="20">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal="modal-new-member">Hủy</button>
+          <button type="submit" class="btn btn-primary">Cấp Thẻ Độc Giả</button>
+        </div>
       </form>
     </div>
   </div>
 
-  <!-- Modal Đăng Ký Độc Giả -->
-  <div class="modal-overlay" id="modal-member">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>Đăng Ký Làm Thẻ Độc Giả</h3>
-        <button class="modal-close" onclick="closeModal('modal-member')">✕</button>
-      </div>
-      <form id="form-member" onsubmit="handleMemberSubmit(event)">
-        <div class="form-group">
-          <label class="form-label">Họ và tên độc giả *</label>
-          <input type="text" class="form-control" id="member-form-name" required placeholder="Nguyễn Văn A">
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Email *</label>
-            <input type="email" class="form-control" id="member-form-email" required placeholder="a.nguyen@example.com">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Số điện thoại *</label>
-            <input type="text" class="form-control" id="member-form-phone" required placeholder="0901234567">
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Địa chỉ</label>
-          <input type="text" class="form-control" id="member-form-address" required placeholder="Quận 1, TP. Hồ Chí Minh">
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Thời hạn thẻ (tháng)</label>
-            <input type="number" class="form-control" id="member-form-duration" value="12" min="1" max="36">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Hạn mức mượn tối đa</label>
-            <input type="number" class="form-control" id="member-form-limit" value="5" min="1" max="10">
-          </div>
-        </div>
-        <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; margin-top: 12px;">
-          Cấp Thẻ Độc Giả Mới
-        </button>
-      </form>
-    </div>
-  </div>
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
 
-  <!-- Modal Thêm Thể Loại -->
-  <div class="modal-overlay" id="modal-category">
-    <div class="modal-content" style="max-width: 440px;">
-      <div class="modal-header">
-        <h3>Thêm Thể Loại Mới</h3>
-        <button class="modal-close" onclick="closeModal('modal-category')">✕</button>
-      </div>
-      <form id="form-category" onsubmit="handleCategorySubmit(event)">
-        <div class="form-group">
-          <label class="form-label">Tên thể loại *</label>
-          <input type="text" class="form-control" id="cat-form-name" required placeholder="Trí tuệ nhân tạo & Khoa học">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Mô tả chi tiết</label>
-          <textarea class="form-control" id="cat-form-desc" placeholder="Tài liệu nghiên cứu AI..."></textarea>
-        </div>
-        <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; margin-top: 12px;">
-          Lưu Thể Loại
-        </button>
-      </form>
-    </div>
-  </div>
-
-  <!-- Modal Thêm Tác Giả -->
-  <div class="modal-overlay" id="modal-author">
-    <div class="modal-content" style="max-width: 440px;">
-      <div class="modal-header">
-        <h3>Thêm Tác Giả Mới</h3>
-        <button class="modal-close" onclick="closeModal('modal-author')">✕</button>
-      </div>
-      <form id="form-author" onsubmit="handleAuthorSubmit(event)">
-        <div class="form-group">
-          <label class="form-label">Họ tên tác giả *</label>
-          <input type="text" class="form-control" id="author-form-name" required placeholder="Ví dụ: Dan Brown">
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Quốc tịch *</label>
-            <input type="text" class="form-control" id="author-form-nat" required placeholder="Mỹ">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Năm sinh</label>
-            <input type="number" class="form-control" id="author-form-year" placeholder="1964">
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Tiểu sử</label>
-          <textarea class="form-control" id="author-form-bio" placeholder="Tác giả tiểu thuyết Mật mã Da Vinci..."></textarea>
-        </div>
-        <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; margin-top: 12px;">
-          Lưu Tác Giả
-        </button>
-      </form>
-    </div>
-  </div>
-
-  <!-- TOAST NOTIFICATIONS CONTAINER -->
-  <div class="toast-container" id="toast-container"></div>
-
-  <script src="/admin/app.js"></script>
+  <!-- Modular JavaScript Files -->
+  <script src="/js/api.js"></script>
+  <script src="/js/ui.js"></script>
+  <script src="/js/stats.js"></script>
+  <script src="/js/books.js"></script>
+  <script src="/js/borrowings.js"></script>
+  <script src="/js/members.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/app.js"></script>
 </body>
 </html>

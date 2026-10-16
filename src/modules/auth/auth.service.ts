@@ -113,7 +113,49 @@ export class AuthService {
 
     const cleanIdentifier = accountIdentifier.trim();
 
-    // Tìm kiếm người dùng qua Email hoặc Số điện thoại trên Supabase Postgres
+    // 1. Kiểm tra tài khoản Quản trị viên cấp cao từ biến môi trường (.env: ADMIN_USERNAME & ADMIN_PASSWORD)
+    const envAdminUser = process.env.ADMIN_USERNAME?.trim();
+    const envAdminPass = process.env.ADMIN_PASSWORD;
+
+    if (
+      envAdminUser &&
+      envAdminPass &&
+      cleanIdentifier.toLowerCase() === envAdminUser.toLowerCase() &&
+      dto.password === envAdminPass
+    ) {
+      let adminUser = await this.prisma.user.findFirst({
+        where: {
+          OR: [
+            { email: `${envAdminUser.toLowerCase()}@librobe.com` },
+            { email: 'admin@librobe.com' },
+          ],
+        },
+      });
+
+      if (!adminUser) {
+        const hashedPassword = await bcrypt.hash(envAdminPass, 10);
+        adminUser = await this.prisma.user.create({
+          data: {
+            email: `${envAdminUser.toLowerCase()}@librobe.com`,
+            phone: '0909000001',
+            password: hashedPassword,
+            fullName: `Quản Trị Viên (${envAdminUser})`,
+            role: UserRole.ADMIN,
+            isActive: true,
+          },
+        });
+      }
+
+      const accessToken = await this.generateToken(adminUser);
+      return {
+        accessToken,
+        tokenType: 'Bearer',
+        expiresIn: this.JWT_EXPIRES_IN_SECONDS,
+        user: this.toProfileDto(adminUser),
+      };
+    }
+
+    // 2. Tìm kiếm người dùng qua Email hoặc Số điện thoại trên Supabase Postgres
     const user = await this.prisma.user.findFirst({
       where: {
         OR: [
