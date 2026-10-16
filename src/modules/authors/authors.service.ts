@@ -1,54 +1,55 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import { PaginatedResponseDto, PaginationDto } from '../../common/dto/pagination.dto.js';
-import { DatabaseService } from '../database/database.service.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateAuthorDto } from './dto/create-author.dto.js';
 import { UpdateAuthorDto } from './dto/update-author.dto.js';
 import { Author } from './entities/author.entity.js';
 
 @Injectable()
 export class AuthorsService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  findAll(pagination: PaginationDto): PaginatedResponseDto<Author> {
-    let authors = this.db.getAuthors();
-    const books = this.db.getBooks();
-
-    authors = authors.map((auth) => ({
-      ...auth,
-      bookCount: books.filter((b) => b.authorId === auth.id).length,
-    }));
-
-    if (pagination.search) {
-      const term = pagination.search.toLowerCase();
-      authors = authors.filter(
-        (a) =>
-          a.name.toLowerCase().includes(term) ||
-          a.nationality.toLowerCase().includes(term) ||
-          a.biography.toLowerCase().includes(term),
-      );
-    }
-
-    if (pagination.sortBy) {
-      const key = pagination.sortBy as keyof Author;
-      authors.sort((a, b) => {
-        const valA = a[key] ?? '';
-        const valB = b[key] ?? '';
-        if (pagination.sortOrder === 'ASC') {
-          return valA > valB ? 1 : -1;
-        }
-        return valA < valB ? 1 : -1;
-      });
-    } else {
-      authors.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-    }
-
-    const totalItems = authors.length;
+  async findAll(pagination: PaginationDto): Promise<PaginatedResponseDto<Author>> {
     const page = pagination.page || 1;
     const limit = pagination.limit || 10;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (pagination.search) {
+      where.OR = [
+        { name: { contains: pagination.search, mode: 'insensitive' } },
+        { nationality: { contains: pagination.search, mode: 'insensitive' } },
+        { biography: { contains: pagination.search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [totalItems, authors] = await Promise.all([
+      this.prisma.author.count({ where }),
+      this.prisma.author.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          _count: { select: { books: true } },
+        },
+        orderBy: pagination.sortBy
+          ? { [pagination.sortBy]: (pagination.sortOrder ?? 'DESC').toLowerCase() }
+          : { createdAt: 'desc' },
+      }),
+    ]);
+
+    const data: Author[] = authors.map((a) => ({
+      id: a.id,
+      name: a.name,
+      biography: a.biography || '',
+      nationality: a.nationality,
+      birthYear: a.birthYear ?? undefined,
+      bookCount: a._count.books,
+      createdAt: a.createdAt,
+      updatedAt: a.updatedAt,
+    }));
+
     const totalPages = Math.ceil(totalItems / limit) || 1;
-    const startIndex = (page - 1) * limit;
-    const data = authors.slice(startIndex, startIndex + limit);
 
     return {
       data,
@@ -63,73 +64,111 @@ export class AuthorsService {
     };
   }
 
-  findOne(id: string): Author {
-    const author = this.db.getAuthorById(id);
+  async findOne(id: string): Promise<Author> {
+    const author = await this.prisma.author.findUnique({
+      where: { id },
+      include: {
+        _count: { select: { books: true } },
+      },
+    });
+
     if (!author) {
       throw new NotFoundException(`Không tìm thấy tác giả với ID "${id}"`);
     }
-    const bookCount = this.db.getBooks().filter((b) => b.authorId === id).length;
-    return { ...author, bookCount };
+
+    return {
+      id: author.id,
+      name: author.name,
+      biography: author.biography || '',
+      nationality: author.nationality,
+      birthYear: author.birthYear ?? undefined,
+      bookCount: author._count.books,
+      createdAt: author.createdAt,
+      updatedAt: author.updatedAt,
+    };
   }
 
-  create(dto: CreateAuthorDto): Author {
-    const existing = this.db
-      .getAuthors()
-      .find((a) => a.name.toLowerCase() === dto.name.trim().toLowerCase());
+  async create(dto: CreateAuthorDto): Promise<Author> {
+    const existing = await this.prisma.author.findUnique({
+      where: { name: dto.name.trim() },
+    });
     if (existing) {
-      throw new ConflictException(`Tác giả với tên "${dto.name}" đã tồn tại trong hệ thống`);
+      throw new ConflictException(`Tác giả với tên "${dto.name}" đã tồn tại trên hệ thống`);
     }
 
-    const now = new Date();
-    const newAuthor: Author = {
-      id: `auth-${randomUUID().substring(0, 8)}`,
-      name: dto.name.trim(),
-      biography: dto.biography?.trim() ?? '',
-      nationality: dto.nationality.trim(),
-      birthYear: dto.birthYear,
-      bookCount: 0,
-      createdAt: now,
-      updatedAt: now,
-    };
+    const created = await this.prisma.author.create({
+      data: {
+        name: dto.name.trim(),
+        biography: dto.biography?.trim() || null,
+        nationality: dto.nationality.trim(),
+        birthYear: dto.birthYear ?? null,
+      },
+    });
 
-    this.db.setAuthor(newAuthor);
-    return newAuthor;
+    return {
+      id: created.id,
+      name: created.name,
+      biography: created.biography || '',
+      nationality: created.nationality,
+      birthYear: created.birthYear ?? undefined,
+      bookCount: 0,
+      createdAt: created.createdAt,
+      updatedAt: created.updatedAt,
+    };
   }
 
-  update(id: string, dto: UpdateAuthorDto): Author {
-    const existing = this.findOne(id);
+  async update(id: string, dto: UpdateAuthorDto): Promise<Author> {
+    await this.findOne(id);
 
-    if (dto.name && dto.name.trim().toLowerCase() !== existing.name.toLowerCase()) {
-      const duplicate = this.db
-        .getAuthors()
-        .find((a) => a.id !== id && a.name.toLowerCase() === dto.name!.trim().toLowerCase());
-      if (duplicate) {
-        throw new ConflictException(`Tác giả với tên "${dto.name}" đã tồn tại trong hệ thống`);
+    if (dto.name) {
+      const duplicate = await this.prisma.author.findUnique({
+        where: { name: dto.name.trim() },
+      });
+      if (duplicate && duplicate.id !== id) {
+        throw new ConflictException(`Tác giả với tên "${dto.name}" đã tồn tại`);
       }
     }
 
-    const updatedAuthor: Author = {
-      ...existing,
-      name: dto.name ? dto.name.trim() : existing.name,
-      biography: dto.biography !== undefined ? dto.biography.trim() : existing.biography,
-      nationality: dto.nationality ? dto.nationality.trim() : existing.nationality,
-      birthYear: dto.birthYear !== undefined ? dto.birthYear : existing.birthYear,
-      updatedAt: new Date(),
-    };
+    const updated = await this.prisma.author.update({
+      where: { id },
+      data: {
+        ...(dto.name ? { name: dto.name.trim() } : {}),
+        ...(dto.biography !== undefined ? { biography: dto.biography.trim() } : {}),
+        ...(dto.nationality ? { nationality: dto.nationality.trim() } : {}),
+        ...(dto.birthYear !== undefined ? { birthYear: dto.birthYear } : {}),
+      },
+      include: {
+        _count: { select: { books: true } },
+      },
+    });
 
-    this.db.setAuthor(updatedAuthor);
-    return updatedAuthor;
+    return {
+      id: updated.id,
+      name: updated.name,
+      biography: updated.biography || '',
+      nationality: updated.nationality,
+      birthYear: updated.birthYear ?? undefined,
+      bookCount: updated._count.books,
+      createdAt: updated.createdAt,
+      updatedAt: updated.updatedAt,
+    };
   }
 
-  remove(id: string): { message: string; deletedId: string } {
-    this.findOne(id);
-    const booksWithAuthor = this.db.getBooks().filter((b) => b.authorId === id);
-    if (booksWithAuthor.length > 0) {
+  async remove(id: string): Promise<{ message: string; deletedId: string }> {
+    await this.findOne(id);
+
+    const bookCount = await this.prisma.book.count({
+      where: { authorId: id },
+    });
+
+    if (bookCount > 0) {
       throw new ConflictException(
-        `Không thể xóa tác giả này vì vẫn còn ${booksWithAuthor.length} cuốn sách của tác giả trong thư viện`,
+        `Không thể xóa tác giả này vì vẫn còn ${bookCount} cuốn sách của tác giả trong thư viện`,
       );
     }
-    this.db.deleteAuthor(id);
+
+    await this.prisma.author.delete({ where: { id } });
+
     return {
       message: `Đã xóa thành công tác giả với ID: ${id}`,
       deletedId: id,

@@ -13,7 +13,7 @@ export class PaginationDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  page: number = 1;
+  page?: number = 1;
 
   @ApiPropertyOptional({
     description: 'Số lượng mục trên mỗi trang',
@@ -27,7 +27,7 @@ export class PaginationDto {
   @IsInt()
   @Min(1)
   @Max(100)
-  limit: number = 10;
+  limit?: number = 10;
 
   @ApiPropertyOptional({
     description: 'Từ khóa tìm kiếm (hỗ trợ tìm kiếm theo tiêu đề, tên, mã số, v.v.)',
@@ -53,7 +53,7 @@ export class PaginationDto {
   })
   @IsOptional()
   @IsString()
-  sortOrder: 'ASC' | 'DESC' = 'DESC';
+  sortOrder?: 'ASC' | 'DESC' = 'DESC';
 }
 
 export class PaginatedResultMeta {

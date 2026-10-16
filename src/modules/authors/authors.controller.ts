@@ -61,7 +61,7 @@ export class AuthorsController {
   @ApiNotFoundResponse({
     description: 'Không tìm thấy tác giả với ID được chỉ định',
   })
-  findOne(@Param('id') id: string): Author {
+  findOne(@Param('id') id: string): Promise<Author> {
     return this.authorsService.findOne(id);
   }
 
@@ -81,7 +81,7 @@ export class AuthorsController {
   @ApiConflictResponse({
     description: 'Tên tác giả đã tồn tại trong hệ thống',
   })
-  create(@Body() dto: CreateAuthorDto): Author {
+  create(@Body() dto: CreateAuthorDto): Promise<Author> {
     return this.authorsService.create(dto);
   }
 
@@ -105,7 +105,7 @@ export class AuthorsController {
   @ApiConflictResponse({
     description: 'Tên tác giả mới bị trùng lặp',
   })
-  update(@Param('id') id: string, @Body() dto: UpdateAuthorDto): Author {
+  update(@Param('id') id: string, @Body() dto: UpdateAuthorDto): Promise<Author> {
     return this.authorsService.update(id, dto);
   }
 
@@ -128,7 +128,7 @@ export class AuthorsController {
   @ApiConflictResponse({
     description: 'Không thể xóa vì thư viện còn sách của tác giả này',
   })
-  remove(@Param('id') id: string) {
+  remove(@Param('id') id: string): Promise<{ message: string; deletedId: string }> {
     return this.authorsService.remove(id);
   }
 }

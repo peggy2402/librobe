@@ -18,7 +18,7 @@ export class StatsController {
     description: 'Chỉ số thống kê thư viện theo thời gian thực',
     type: LibraryStatsDto,
   })
-  getDashboardStats(): LibraryStatsDto {
+  getDashboardStats(): Promise<LibraryStatsDto> {
     return this.statsService.getDashboardStats();
   }
 }

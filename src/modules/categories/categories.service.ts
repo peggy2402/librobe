@@ -1,54 +1,52 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import { PaginatedResponseDto, PaginationDto } from '../../common/dto/pagination.dto.js';
-import { DatabaseService } from '../database/database.service.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateCategoryDto } from './dto/create-category.dto.js';
 import { UpdateCategoryDto } from './dto/update-category.dto.js';
 import { Category } from './entities/category.entity.js';
 
 @Injectable()
 export class CategoriesService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  findAll(pagination: PaginationDto): PaginatedResponseDto<Category> {
-    let categories = this.db.getCategories();
-
-    // Cập nhật số lượng sách theo thời gian thực
-    const books = this.db.getBooks();
-    categories = categories.map((cat) => ({
-      ...cat,
-      bookCount: books.filter((b) => b.categoryId === cat.id).length,
-    }));
-
-    if (pagination.search) {
-      const term = pagination.search.toLowerCase();
-      categories = categories.filter(
-        (c) =>
-          c.name.toLowerCase().includes(term) ||
-          c.description.toLowerCase().includes(term),
-      );
-    }
-
-    if (pagination.sortBy) {
-      const key = pagination.sortBy as keyof Category;
-      categories.sort((a, b) => {
-        const valA = a[key] ?? '';
-        const valB = b[key] ?? '';
-        if (pagination.sortOrder === 'ASC') {
-          return valA > valB ? 1 : -1;
-        }
-        return valA < valB ? 1 : -1;
-      });
-    } else {
-      categories.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-    }
-
-    const totalItems = categories.length;
+  async findAll(pagination: PaginationDto): Promise<PaginatedResponseDto<Category>> {
     const page = pagination.page || 1;
     const limit = pagination.limit || 10;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (pagination.search) {
+      where.OR = [
+        { name: { contains: pagination.search, mode: 'insensitive' } },
+        { description: { contains: pagination.search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [totalItems, categories] = await Promise.all([
+      this.prisma.category.count({ where }),
+      this.prisma.category.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          _count: { select: { books: true } },
+        },
+        orderBy: pagination.sortBy
+          ? { [pagination.sortBy]: (pagination.sortOrder ?? 'DESC').toLowerCase() }
+          : { createdAt: 'desc' },
+      }),
+    ]);
+
+    const data: Category[] = categories.map((c) => ({
+      id: c.id,
+      name: c.name,
+      description: c.description || '',
+      bookCount: c._count.books,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+    }));
+
     const totalPages = Math.ceil(totalItems / limit) || 1;
-    const startIndex = (page - 1) * limit;
-    const data = categories.slice(startIndex, startIndex + limit);
 
     return {
       data,
@@ -63,69 +61,101 @@ export class CategoriesService {
     };
   }
 
-  findOne(id: string): Category {
-    const category = this.db.getCategoryById(id);
+  async findOne(id: string): Promise<Category> {
+    const category = await this.prisma.category.findUnique({
+      where: { id },
+      include: {
+        _count: { select: { books: true } },
+      },
+    });
+
     if (!category) {
       throw new NotFoundException(`Không tìm thấy thể loại với ID "${id}"`);
     }
-    const bookCount = this.db.getBooks().filter((b) => b.categoryId === id).length;
-    return { ...category, bookCount };
+
+    return {
+      id: category.id,
+      name: category.name,
+      description: category.description || '',
+      bookCount: category._count.books,
+      createdAt: category.createdAt,
+      updatedAt: category.updatedAt,
+    };
   }
 
-  create(dto: CreateCategoryDto): Category {
-    const existing = this.db
-      .getCategories()
-      .find((c) => c.name.toLowerCase() === dto.name.trim().toLowerCase());
+  async create(dto: CreateCategoryDto): Promise<Category> {
+    const existing = await this.prisma.category.findUnique({
+      where: { name: dto.name.trim() },
+    });
     if (existing) {
-      throw new ConflictException(`Thể loại với tên "${dto.name}" đã tồn tại`);
+      throw new ConflictException(`Thể loại với tên "${dto.name}" đã tồn tại trên hệ thống`);
     }
 
-    const now = new Date();
-    const newCategory: Category = {
-      id: `cat-${randomUUID().substring(0, 8)}`,
-      name: dto.name.trim(),
-      description: dto.description?.trim() ?? '',
-      bookCount: 0,
-      createdAt: now,
-      updatedAt: now,
-    };
+    const created = await this.prisma.category.create({
+      data: {
+        name: dto.name.trim(),
+        description: dto.description?.trim() || null,
+      },
+    });
 
-    this.db.setCategory(newCategory);
-    return newCategory;
+    return {
+      id: created.id,
+      name: created.name,
+      description: created.description || '',
+      bookCount: 0,
+      createdAt: created.createdAt,
+      updatedAt: created.updatedAt,
+    };
   }
 
-  update(id: string, dto: UpdateCategoryDto): Category {
-    const existing = this.findOne(id);
+  async update(id: string, dto: UpdateCategoryDto): Promise<Category> {
+    await this.findOne(id);
 
-    if (dto.name && dto.name.trim().toLowerCase() !== existing.name.toLowerCase()) {
-      const duplicate = this.db
-        .getCategories()
-        .find((c) => c.id !== id && c.name.toLowerCase() === dto.name!.trim().toLowerCase());
-      if (duplicate) {
+    if (dto.name) {
+      const duplicate = await this.prisma.category.findUnique({
+        where: { name: dto.name.trim() },
+      });
+      if (duplicate && duplicate.id !== id) {
         throw new ConflictException(`Thể loại với tên "${dto.name}" đã tồn tại`);
       }
     }
 
-    const updatedCategory: Category = {
-      ...existing,
-      name: dto.name ? dto.name.trim() : existing.name,
-      description: dto.description !== undefined ? dto.description.trim() : existing.description,
-      updatedAt: new Date(),
-    };
+    const updated = await this.prisma.category.update({
+      where: { id },
+      data: {
+        ...(dto.name ? { name: dto.name.trim() } : {}),
+        ...(dto.description !== undefined ? { description: dto.description.trim() } : {}),
+      },
+      include: {
+        _count: { select: { books: true } },
+      },
+    });
 
-    this.db.setCategory(updatedCategory);
-    return updatedCategory;
+    return {
+      id: updated.id,
+      name: updated.name,
+      description: updated.description || '',
+      bookCount: updated._count.books,
+      createdAt: updated.createdAt,
+      updatedAt: updated.updatedAt,
+    };
   }
 
-  remove(id: string): { message: string; deletedId: string } {
-    this.findOne(id);
-    const booksWithCategory = this.db.getBooks().filter((b) => b.categoryId === id);
-    if (booksWithCategory.length > 0) {
+  async remove(id: string): Promise<{ message: string; deletedId: string }> {
+    await this.findOne(id);
+
+    const bookCount = await this.prisma.book.count({
+      where: { categoryId: id },
+    });
+
+    if (bookCount > 0) {
       throw new ConflictException(
-        `Không thể xóa thể loại này vì vẫn còn ${booksWithCategory.length} đầu sách đang thuộc về nó`,
+        `Không thể xóa thể loại này vì vẫn còn ${bookCount} cuốn sách thuộc về nó trên Supabase`,
       );
     }
-    this.db.deleteCategory(id);
+
+    await this.prisma.category.delete({ where: { id } });
+
     return {
       message: `Đã xóa thành công thể loại với ID: ${id}`,
       deletedId: id,

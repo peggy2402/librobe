@@ -62,7 +62,7 @@ export class BooksController {
   @ApiNotFoundResponse({
     description: 'Không tìm thấy cuốn sách với mã ISBN này',
   })
-  findByIsbn(@Param('isbn') isbn: string): Book {
+  findByIsbn(@Param('isbn') isbn: string): Promise<Book> {
     return this.booksService.findByIsbn(isbn);
   }
 
@@ -83,7 +83,7 @@ export class BooksController {
   @ApiNotFoundResponse({
     description: 'Không tìm thấy cuốn sách với ID chỉ định',
   })
-  findOne(@Param('id') id: string): Book {
+  findOne(@Param('id') id: string): Promise<Book> {
     return this.booksService.findOne(id);
   }
 
@@ -104,7 +104,7 @@ export class BooksController {
   @ApiConflictResponse({
     description: 'Mã ISBN đã tồn tại trong thư viện',
   })
-  create(@Body() dto: CreateBookDto): Book {
+  create(@Body() dto: CreateBookDto): Promise<Book> {
     return this.booksService.create(dto);
   }
 
@@ -128,7 +128,7 @@ export class BooksController {
   @ApiConflictResponse({
     description: 'Mã ISBN mới bị trùng lặp với cuốn sách khác',
   })
-  update(@Param('id') id: string, @Body() dto: UpdateBookDto): Book {
+  update(@Param('id') id: string, @Body() dto: UpdateBookDto): Promise<Book> {
     return this.booksService.update(id, dto);
   }
 
@@ -151,7 +151,7 @@ export class BooksController {
   @ApiConflictResponse({
     description: 'Không thể xóa vì sách vẫn đang nằm trong phiếu mượn chưa trả',
   })
-  remove(@Param('id') id: string) {
+  remove(@Param('id') id: string): Promise<{ message: string; deletedId: string }> {
     return this.booksService.remove(id);
   }
 }

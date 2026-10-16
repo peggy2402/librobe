@@ -88,7 +88,7 @@ export class AuthController {
   @ApiUnauthorizedResponse({
     description: 'Chưa đăng nhập, thiếu Token hoặc Token không hợp lệ/hết hạn',
   })
-  getProfile(@CurrentUser() user: User): UserProfileDto {
+  getProfile(@CurrentUser() user: User): Promise<UserProfileDto> {
     return this.authService.getProfile(user.id);
   }
 

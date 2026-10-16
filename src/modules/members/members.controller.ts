@@ -62,7 +62,7 @@ export class MembersController {
   @ApiNotFoundResponse({
     description: 'Không tìm thấy độc giả với số thẻ này',
   })
-  findByCardNumber(@Param('cardNumber') cardNumber: string): Member {
+  findByCardNumber(@Param('cardNumber') cardNumber: string): Promise<Member> {
     return this.membersService.findByCardNumber(cardNumber);
   }
 
@@ -83,7 +83,7 @@ export class MembersController {
   @ApiNotFoundResponse({
     description: 'Không tìm thấy độc giả với ID chỉ định',
   })
-  findOne(@Param('id') id: string): Member {
+  findOne(@Param('id') id: string): Promise<Member> {
     return this.membersService.findOne(id);
   }
 
@@ -104,7 +104,7 @@ export class MembersController {
   @ApiConflictResponse({
     description: 'Email độc giả đã tồn tại trong hệ thống',
   })
-  create(@Body() dto: CreateMemberDto): Member {
+  create(@Body() dto: CreateMemberDto): Promise<Member> {
     return this.membersService.create(dto);
   }
 
@@ -128,7 +128,7 @@ export class MembersController {
   @ApiConflictResponse({
     description: 'Địa chỉ email mới bị trùng lặp',
   })
-  update(@Param('id') id: string, @Body() dto: UpdateMemberDto): Member {
+  update(@Param('id') id: string, @Body() dto: UpdateMemberDto): Promise<Member> {
     return this.membersService.update(id, dto);
   }
 
@@ -151,7 +151,7 @@ export class MembersController {
   @ApiConflictResponse({
     description: 'Không thể xóa vì độc giả vẫn đang mượn sách chưa trả',
   })
-  remove(@Param('id') id: string) {
+  remove(@Param('id') id: string): Promise<{ message: string; deletedId: string }> {
     return this.membersService.remove(id);
   }
 }

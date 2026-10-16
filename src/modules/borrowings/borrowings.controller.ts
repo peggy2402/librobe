@@ -53,7 +53,7 @@ export class BorrowingsController {
     description: 'Danh sách các phiếu mượn quá hạn',
     type: [Borrowing],
   })
-  getOverdueLoans(): Borrowing[] {
+  getOverdueLoans(): Promise<Borrowing[]> {
     return this.borrowingsService.getOverdueLoans();
   }
 
@@ -74,7 +74,7 @@ export class BorrowingsController {
   @ApiNotFoundResponse({
     description: 'Không tìm thấy phiếu mượn',
   })
-  findOne(@Param('id') id: string): Borrowing {
+  findOne(@Param('id') id: string): Promise<Borrowing> {
     return this.borrowingsService.findOne(id);
   }
 
@@ -95,7 +95,7 @@ export class BorrowingsController {
   @ApiNotFoundResponse({
     description: 'Không tìm thấy độc giả hoặc cuốn sách',
   })
-  borrowBook(@Body() dto: BorrowBookDto): Borrowing {
+  borrowBook(@Body() dto: BorrowBookDto): Promise<Borrowing> {
     return this.borrowingsService.borrowBook(dto);
   }
 
@@ -121,7 +121,7 @@ export class BorrowingsController {
   @ApiNotFoundResponse({
     description: 'Không tìm thấy phiếu mượn để trả sách',
   })
-  returnBook(@Param('id') id: string, @Body() dto: ReturnBookDto): Borrowing {
+  returnBook(@Param('id') id: string, @Body() dto: ReturnBookDto): Promise<Borrowing> {
     return this.borrowingsService.returnBook(id, dto);
   }
 
@@ -147,7 +147,7 @@ export class BorrowingsController {
   @ApiNotFoundResponse({
     description: 'Không tìm thấy phiếu mượn để gia hạn',
   })
-  renewLoan(@Param('id') id: string, @Body() dto: RenewLoanDto): Borrowing {
+  renewLoan(@Param('id') id: string, @Body() dto: RenewLoanDto): Promise<Borrowing> {
     return this.borrowingsService.renewLoan(id, dto);
   }
 
@@ -169,7 +169,7 @@ export class BorrowingsController {
   @ApiBadRequestResponse({
     description: 'Phiếu mượn không có tiền phạt hoặc đã thanh toán xong',
   })
-  payFine(@Param('id') id: string): Borrowing {
+  payFine(@Param('id') id: string): Promise<Borrowing> {
     return this.borrowingsService.payFine(id);
   }
 }

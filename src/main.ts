@@ -1,3 +1,5 @@
+import express from 'express';
+import { join } from 'node:path';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -25,9 +27,13 @@ async function bootstrap() {
     }),
   );
 
-  // Thiết lập tiền tố toàn cục /api (loại trừ root / để tự redirect sang docs)
+  // Cấu hình phục vụ giao diện Web Trang Quản trị (Admin Management Dashboard)
+  const publicPath = join(process.cwd(), 'public');
+  app.use('/admin', express.static(publicPath));
+
+  // Thiết lập tiền tố toàn cục /api (loại trừ root / và /admin để phục vụ static & redirect)
   app.setGlobalPrefix('api', {
-    exclude: ['/'],
+    exclude: ['/', '/admin', '/admin/*'],
   });
 
   // Thiết lập Swagger UI OpenAPI Documentation
@@ -96,11 +102,12 @@ Tài liệu Swagger này cung cấp đầy đủ thông tin về các endpoints,
   });
 
   const port = process.env.PORT ?? 3000;
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
 
   console.log(`\n======================================================`);
   console.log(`🚀 Hệ thống Quản lý Thư viện (Librobe) đang chạy tại:`);
   console.log(`👉 Backend URL : http://localhost:${port}`);
+  console.log(`👉 Trang Quản Lý : http://localhost:${port}/admin`);
   console.log(`👉 Swagger UI  : http://localhost:${port}/api/docs`);
   console.log(`👉 Health Check: http://localhost:${port}/api/health`);
   console.log(`======================================================\n`);

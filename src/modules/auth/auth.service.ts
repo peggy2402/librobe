@@ -7,12 +7,9 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import bcrypt from 'bcryptjs';
-import { randomUUID } from 'node:crypto';
 import { MemberStatus } from '../../common/enums/member-status.enum.js';
 import { UserRole } from '../../common/enums/user-role.enum.js';
-import { DatabaseService } from '../database/database.service.js';
-import { Member } from '../members/entities/member.entity.js';
-import { User } from '../users/entities/user.entity.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 import { AuthResponseDto, UserProfileDto } from './dto/auth-response.dto.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
 import { LoginDto } from './dto/login.dto.js';
@@ -23,7 +20,7 @@ export class AuthService {
   private readonly JWT_EXPIRES_IN_SECONDS = 86400; // 24 giờ
 
   constructor(
-    private readonly db: DatabaseService,
+    private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
   ) {}
 
@@ -32,13 +29,17 @@ export class AuthService {
     const cleanPhone = dto.phone.trim();
 
     // 1. Kiểm tra trùng Email
-    const existingByEmail = this.db.getUserByEmail(cleanEmail);
+    const existingByEmail = await this.prisma.user.findUnique({
+      where: { email: cleanEmail },
+    });
     if (existingByEmail) {
       throw new ConflictException(`Địa chỉ email "${dto.email}" đã được đăng ký tài khoản khác`);
     }
 
     // 2. Kiểm tra trùng Số điện thoại
-    const existingByPhone = this.db.getUserByPhone(cleanPhone);
+    const existingByPhone = await this.prisma.user.findUnique({
+      where: { phone: cleanPhone },
+    });
     if (existingByPhone) {
       throw new ConflictException(`Số điện thoại "${dto.phone}" đã được liên kết với tài khoản khác`);
     }
@@ -48,56 +49,51 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(dto.password, salt);
 
     const now = new Date();
-    const userId = `user-${randomUUID().substring(0, 8)}`;
-    const role = dto.role ?? UserRole.MEMBER;
+    const role = (dto.role as any) ?? UserRole.MEMBER;
     let memberId: string | undefined;
 
     // 4. Nếu người dùng đăng ký vai trò Độc giả (MEMBER), tự động liên kết hoặc tạo thẻ thư viện
     if (role === UserRole.MEMBER) {
-      const existingMember = this.db.getMemberByEmail(cleanEmail);
+      const existingMember = await this.prisma.member.findUnique({
+        where: { email: cleanEmail },
+      });
       if (existingMember) {
         memberId = existingMember.id;
       } else {
-        const memberCount = this.db.getMembers().length + 1;
+        const memberCount = (await this.prisma.member.count()) + 1;
         const cardNumber = `LIB-${now.getFullYear()}-${memberCount.toString().padStart(4, '0')}`;
         const expiryDate = new Date(now);
         expiryDate.setFullYear(expiryDate.getFullYear() + 1);
 
-        const newMember: Member = {
-          id: `mem-${randomUUID().substring(0, 8)}`,
-          cardNumber,
-          fullName: dto.fullName.trim(),
-          email: cleanEmail,
-          phone: cleanPhone,
-          address: 'Chưa cập nhật địa chỉ',
-          membershipExpiry: expiryDate,
-          status: MemberStatus.ACTIVE,
-          maxBorrowLimit: 5,
-          currentBorrowedCount: 0,
-          createdAt: now,
-          updatedAt: now,
-        };
-        this.db.setMember(newMember);
+        const newMember = await this.prisma.member.create({
+          data: {
+            cardNumber,
+            fullName: dto.fullName.trim(),
+            email: cleanEmail,
+            phone: cleanPhone,
+            address: 'Chưa cập nhật địa chỉ',
+            membershipExpiry: expiryDate,
+            status: MemberStatus.ACTIVE,
+            maxBorrowLimit: 5,
+            currentBorrowedCount: 0,
+          },
+        });
         memberId = newMember.id;
       }
     }
 
-    const newUser: User = {
-      id: userId,
-      email: cleanEmail,
-      phone: cleanPhone,
-      password: hashedPassword,
-      fullName: dto.fullName.trim(),
-      role,
-      isActive: true,
-      memberId,
-      createdAt: now,
-      updatedAt: now,
-    };
+    const newUser = await this.prisma.user.create({
+      data: {
+        email: cleanEmail,
+        phone: cleanPhone,
+        password: hashedPassword,
+        fullName: dto.fullName.trim(),
+        role,
+        isActive: true,
+        memberId: memberId || null,
+      },
+    });
 
-    this.db.setUser(newUser);
-
-    // 5. Sinh JWT Token
     const accessToken = await this.generateToken(newUser);
 
     return {
@@ -117,9 +113,15 @@ export class AuthService {
 
     const cleanIdentifier = accountIdentifier.trim();
 
-    // Tìm kiếm người dùng qua Email hoặc Số điện thoại
-    const user =
-      this.db.getUserByEmail(cleanIdentifier) || this.db.getUserByPhone(cleanIdentifier);
+    // Tìm kiếm người dùng qua Email hoặc Số điện thoại trên Supabase Postgres
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: cleanIdentifier.toLowerCase() },
+          { phone: cleanIdentifier },
+        ],
+      },
+    });
 
     if (!user) {
       throw new UnauthorizedException('Email/Số điện thoại hoặc mật khẩu không chính xác');
@@ -129,13 +131,11 @@ export class AuthService {
       throw new UnauthorizedException('Tài khoản của bạn đã bị vô hiệu hóa hoặc tạm khóa');
     }
 
-    // So khớp mật khẩu
     const isPasswordValid = await bcrypt.compare(dto.password, user.password);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Email/Số điện thoại hoặc mật khẩu không chính xác');
     }
 
-    // Sinh JWT Token
     const accessToken = await this.generateToken(user);
 
     return {
@@ -146,8 +146,10 @@ export class AuthService {
     };
   }
 
-  getProfile(userId: string): UserProfileDto {
-    const user = this.db.getUserById(userId);
+  async getProfile(userId: string): Promise<UserProfileDto> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
     if (!user) {
       throw new NotFoundException('Không tìm thấy thông tin người dùng');
     }
@@ -158,12 +160,13 @@ export class AuthService {
     userId: string,
     dto: ChangePasswordDto,
   ): Promise<{ message: string; success: boolean }> {
-    const user = this.db.getUserById(userId);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
     if (!user) {
       throw new NotFoundException('Không tìm thấy tài khoản người dùng');
     }
 
-    // Kiểm tra mật khẩu cũ
     const isMatch = await bcrypt.compare(dto.currentPassword, user.password);
     if (!isMatch) {
       throw new BadRequestException('Mật khẩu hiện tại không chính xác');
@@ -173,12 +176,13 @@ export class AuthService {
       throw new BadRequestException('Mật khẩu mới không được trùng với mật khẩu hiện tại');
     }
 
-    // Băm mật khẩu mới
     const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(dto.newPassword, salt);
-    user.updatedAt = new Date();
+    const hashedPassword = await bcrypt.hash(dto.newPassword, salt);
 
-    this.db.setUser(user);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword },
+    });
 
     return {
       success: true,
@@ -186,7 +190,7 @@ export class AuthService {
     };
   }
 
-  private async generateToken(user: User): Promise<string> {
+  private async generateToken(user: any): Promise<string> {
     const payload = {
       sub: user.id,
       email: user.email,
@@ -201,13 +205,13 @@ export class AuthService {
     });
   }
 
-  private toProfileDto(user: User): UserProfileDto {
+  private toProfileDto(user: any): UserProfileDto {
     return {
       id: user.id,
       email: user.email,
       phone: user.phone,
       fullName: user.fullName,
-      role: user.role,
+      role: user.role as UserRole,
       isActive: user.isActive,
       createdAt: user.createdAt,
     };

@@ -6,13 +6,13 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
-import { DatabaseService } from '../../database/database.service.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly jwtService: JwtService,
-    private readonly db: DatabaseService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -25,7 +25,9 @@ export class JwtAuthGuard implements CanActivate {
 
     try {
       const payload = await this.jwtService.verifyAsync(token);
-      const user = this.db.getUserById(payload.sub);
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+      });
 
       if (!user) {
         throw new UnauthorizedException('Người dùng liên kết với Token không tồn tại');
@@ -35,7 +37,6 @@ export class JwtAuthGuard implements CanActivate {
         throw new UnauthorizedException('Tài khoản này hiện đang bị khóa hoặc ngưng hoạt động');
       }
 
-      // Gán user vào request object để controller sử dụng
       (request as any).user = user;
     } catch {
       throw new UnauthorizedException('Mã Access Token không hợp lệ hoặc đã hết hạn');

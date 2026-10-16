@@ -8,7 +8,13 @@ export class AppController {
   @Get()
   @ApiExcludeEndpoint()
   rootRedirect(@Res() res: Response) {
-    return res.redirect('/api/docs');
+    return res.redirect('/admin');
+  }
+
+  @Get('dashboard')
+  @ApiExcludeEndpoint()
+  dashboardRedirect(@Res() res: Response) {
+    return res.redirect('/admin');
   }
 
   @Get('health')

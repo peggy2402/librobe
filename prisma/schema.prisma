@@ -1,0 +1,137 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum UserRole {
+  ADMIN
+  LIBRARIAN
+  MEMBER
+}
+
+enum BookStatus {
+  AVAILABLE
+  LOW_STOCK
+  OUT_OF_STOCK
+  DISCONTINUED
+}
+
+enum MemberStatus {
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+}
+
+enum BorrowingStatus {
+  BORROWED
+  RETURNED
+  OVERDUE
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  phone     String   @unique
+  password  String
+  fullName  String   @map("full_name")
+  role      UserRole @default(MEMBER)
+  isActive  Boolean  @default(true) @map("is_active")
+  memberId  String?  @unique @map("member_id")
+  member    Member?  @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model Category {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  books       Book[]
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("categories")
+}
+
+model Author {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  biography   String?
+  nationality String
+  birthYear   Int?     @map("birth_year")
+  books       Book[]
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("authors")
+}
+
+model Book {
+  id              String          @id @default(uuid())
+  isbn            String          @unique
+  title           String
+  authorId        String          @map("author_id")
+  author          Author          @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  categoryId      String          @map("category_id")
+  category        Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  publisher       String
+  publishYear     Int             @map("publish_year")
+  copiesTotal     Int             @default(1) @map("copies_total")
+  copiesAvailable Int             @default(1) @map("copies_available")
+  shelfLocation   String          @map("shelf_location")
+  status          BookStatus      @default(AVAILABLE)
+  coverUrl        String?         @map("cover_url")
+  description     String
+  borrowings      Borrowing[]
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  @@map("books")
+}
+
+model Member {
+  id                   String       @id @default(uuid())
+  cardNumber           String       @unique @map("card_number")
+  fullName             String       @map("full_name")
+  email                String       @unique
+  phone                String       @unique
+  address              String
+  membershipExpiry     DateTime     @map("membership_expiry")
+  status               MemberStatus @default(ACTIVE)
+  maxBorrowLimit       Int          @default(5) @map("max_borrow_limit")
+  currentBorrowedCount Int          @default(0) @map("current_borrowed_count")
+  user                 User?
+  borrowings           Borrowing[]
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+
+  @@map("members")
+}
+
+model Borrowing {
+  id              String          @id @default(uuid())
+  transactionCode String          @unique @map("transaction_code")
+  memberId        String          @map("member_id")
+  member          Member          @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  bookId          String          @map("book_id")
+  book            Book            @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  borrowDate      DateTime        @default(now()) @map("borrow_date")
+  dueDate         DateTime        @map("due_date")
+  returnDate      DateTime?       @map("return_date")
+  renewCount      Int             @default(0) @map("renew_count")
+  fineAmount      Float           @default(0) @map("fine_amount")
+  finePaid        Boolean         @default(false) @map("fine_paid")
+  notes           String?
+  status          BorrowingStatus @default(BORROWED)
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  @@map("borrowings")
+}

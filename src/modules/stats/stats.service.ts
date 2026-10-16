@@ -1,60 +1,79 @@
 import { Injectable } from '@nestjs/common';
 import { BorrowingStatus } from '../../common/enums/borrowing-status.enum.js';
 import { MemberStatus } from '../../common/enums/member-status.enum.js';
-import { DatabaseService } from '../database/database.service.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 import { LibraryStatsDto, TopBorrowedBookDto } from './dto/library-stats.dto.js';
 
 @Injectable()
 export class StatsService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  getDashboardStats(): LibraryStatsDto {
-    const books = this.db.getBooks();
-    const categories = this.db.getCategories();
-    const authors = this.db.getAuthors();
-    const members = this.db.getMembers();
-    const borrowings = this.db.getBorrowings();
+  async getDashboardStats(): Promise<LibraryStatsDto> {
+    const [
+      totalBooks,
+      bookAgg,
+      totalCategories,
+      totalAuthors,
+      totalMembers,
+      activeMembers,
+      totalLoans,
+      activeLoans,
+      overdueLoans,
+      totalFinesAgg,
+      collectedFinesAgg,
+      groupedBorrowings,
+    ] = await Promise.all([
+      this.prisma.book.count(),
+      this.prisma.book.aggregate({
+        _sum: {
+          copiesTotal: true,
+          copiesAvailable: true,
+        },
+      }),
+      this.prisma.category.count(),
+      this.prisma.author.count(),
+      this.prisma.member.count(),
+      this.prisma.member.count({ where: { status: MemberStatus.ACTIVE } }),
+      this.prisma.borrowing.count(),
+      this.prisma.borrowing.count({
+        where: { status: { in: [BorrowingStatus.BORROWED, BorrowingStatus.OVERDUE] } },
+      }),
+      this.prisma.borrowing.count({ where: { status: BorrowingStatus.OVERDUE } }),
+      this.prisma.borrowing.aggregate({
+        _sum: { fineAmount: true },
+      }),
+      this.prisma.borrowing.aggregate({
+        where: { finePaid: true },
+        _sum: { fineAmount: true },
+      }),
+      this.prisma.borrowing.groupBy({
+        by: ['bookId'],
+        _count: { bookId: true },
+        orderBy: { _count: { bookId: 'desc' } },
+        take: 5,
+      }),
+    ]);
 
-    const totalBooks = books.length;
-    const totalCopies = books.reduce((sum, b) => sum + b.copiesTotal, 0);
-    const availableCopies = books.reduce((sum, b) => sum + b.copiesAvailable, 0);
+    const totalCopies = bookAgg._sum.copiesTotal || 0;
+    const availableCopies = bookAgg._sum.copiesAvailable || 0;
     const borrowedCopies = totalCopies - availableCopies;
+    const totalFines = totalFinesAgg._sum.fineAmount || 0;
+    const finesCollected = collectedFinesAgg._sum.fineAmount || 0;
 
-    const totalCategories = categories.length;
-    const totalAuthors = authors.length;
-    const totalMembers = members.length;
-    const activeMembers = members.filter((m) => m.status === MemberStatus.ACTIVE).length;
-
-    const totalLoans = borrowings.length;
-    const activeLoans = borrowings.filter(
-      (b) => b.status === BorrowingStatus.BORROWED || b.status === BorrowingStatus.OVERDUE,
-    ).length;
-    const overdueLoans = borrowings.filter((b) => b.status === BorrowingStatus.OVERDUE).length;
-
-    const totalFines = borrowings.reduce((sum, b) => sum + (b.fineAmount || 0), 0);
-    const finesCollected = borrowings.reduce(
-      (sum, b) => (b.finePaid ? sum + (b.fineAmount || 0) : sum),
-      0,
-    );
-
-    // Tính top sách được mượn nhiều nhất
-    const bookBorrowCountMap = new Map<string, number>();
-    borrowings.forEach((b) => {
-      bookBorrowCountMap.set(b.bookId, (bookBorrowCountMap.get(b.bookId) || 0) + 1);
-    });
-
-    const topBorrowedBooks: TopBorrowedBookDto[] = Array.from(bookBorrowCountMap.entries())
-      .map(([bookId, count]) => {
-        const book = this.db.getBookById(bookId);
+    const topBorrowedBooks: TopBorrowedBookDto[] = await Promise.all(
+      groupedBorrowings.map(async (item) => {
+        const book = await this.prisma.book.findUnique({
+          where: { id: item.bookId },
+          include: { author: true },
+        });
         return {
-          bookId,
-          title: book?.title ?? 'Sách không xác định',
-          authorName: book?.authorName ?? 'Không rõ tác giả',
-          borrowCount: count,
+          bookId: item.bookId,
+          title: book?.title || 'Chưa xác định',
+          authorName: book?.author?.name || 'Không rõ tác giả',
+          borrowCount: item._count.bookId,
         };
-      })
-      .sort((a, b) => b.borrowCount - a.borrowCount)
-      .slice(0, 5);
+      }),
+    );
 
     return {
       totalBooks,

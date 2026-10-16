@@ -61,7 +61,7 @@ export class CategoriesController {
   @ApiNotFoundResponse({
     description: 'Không tìm thấy thể loại tương ứng',
   })
-  findOne(@Param('id') id: string): Category {
+  findOne(@Param('id') id: string): Promise<Category> {
     return this.categoriesService.findOne(id);
   }
 
@@ -81,7 +81,7 @@ export class CategoriesController {
   @ApiConflictResponse({
     description: 'Tên thể loại đã tồn tại trong hệ thống',
   })
-  create(@Body() dto: CreateCategoryDto): Category {
+  create(@Body() dto: CreateCategoryDto): Promise<Category> {
     return this.categoriesService.create(dto);
   }
 
@@ -105,7 +105,7 @@ export class CategoriesController {
   @ApiConflictResponse({
     description: 'Tên thể loại cập nhật bị trùng với một thể loại khác',
   })
-  update(@Param('id') id: string, @Body() dto: UpdateCategoryDto): Category {
+  update(@Param('id') id: string, @Body() dto: UpdateCategoryDto): Promise<Category> {
     return this.categoriesService.update(id, dto);
   }
 
@@ -128,7 +128,7 @@ export class CategoriesController {
   @ApiConflictResponse({
     description: 'Không thể xóa vì vẫn còn sách thuộc thể loại này',
   })
-  remove(@Param('id') id: string) {
+  remove(@Param('id') id: string): Promise<{ message: string; deletedId: string }> {
     return this.categoriesService.remove(id);
   }
 }
