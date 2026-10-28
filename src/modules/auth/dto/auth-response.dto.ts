@@ -17,6 +17,13 @@ export class UserProfileDto {
   @ApiProperty({ enum: UserRole, example: UserRole.ADMIN })
   role!: UserRole;
 
+  @ApiProperty({
+    description: 'Mã hồ sơ độc giả liên kết; null nếu tài khoản không phải MEMBER',
+    example: 'mem-01',
+    nullable: true,
+  })
+  memberId!: string | null;
+
   @ApiProperty({ example: true })
   isActive!: boolean;
 

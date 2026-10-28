@@ -254,6 +254,7 @@ export class AuthService {
       phone: user.phone,
       fullName: user.fullName,
       role: user.role as UserRole,
+      memberId: user.memberId ?? null,
       isActive: user.isActive,
       createdAt: user.createdAt,
     };
