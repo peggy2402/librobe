@@ -7,15 +7,18 @@ import {
   Param,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
+  ApiBearerAuth,
   ApiCreatedResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiTags,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { BorrowingsService } from './borrowings.service.js';
 import { BorrowBookDto } from './dto/borrow-book.dto.js';
@@ -23,9 +26,15 @@ import { FilterBorrowingDto } from './dto/filter-borrowing.dto.js';
 import { RenewLoanDto } from './dto/renew-loan.dto.js';
 import { ReturnBookDto } from './dto/return-book.dto.js';
 import { Borrowing } from './entities/borrowing.entity.js';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 
 @ApiTags('Borrowings - Quản lý Mượn / Trả Sách')
+@ApiBearerAuth('JWT-auth')
+@ApiUnauthorizedResponse({
+  description: 'Thiếu Bearer Token hoặc Token không hợp lệ/hết hạn',
+})
 @Controller('borrowings')
+@UseGuards(JwtAuthGuard)
 export class BorrowingsController {
   constructor(private readonly borrowingsService: BorrowingsService) {}
 

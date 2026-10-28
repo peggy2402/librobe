@@ -27,6 +27,8 @@ Toàn bộ API được mô tả trực quan và hỗ trợ test trực tiếp t
 | `GET` | `/api/auth/me` | **Có** | Lấy thông tin hồ sơ của tài khoản đang đăng nhập |
 | `POST` | `/api/auth/change-password` | **Có** | Đổi mật khẩu tài khoản |
 
+`GET /api/auth/me` trả thêm `memberId` cho tài khoản có vai trò `MEMBER`. Với tài khoản `ADMIN` hoặc `LIBRARIAN`, trường này có giá trị `null`.
+
 #### Ví dụ Request Đăng Nhập (`POST /api/auth/login`):
 ```json
 {
