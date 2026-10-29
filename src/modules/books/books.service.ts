@@ -7,6 +7,7 @@ import {
 import { PaginatedResponseDto } from '../../common/dto/pagination.dto.js';
 import { BookStatus } from '../../common/enums/book-status.enum.js';
 import { BorrowingStatus } from '../../common/enums/borrowing-status.enum.js';
+import { isValidIsbn13, normalizeIsbn } from '../../common/utils/isbn.util.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateBookDto } from './dto/create-book.dto.js';
 import { FilterBookDto } from './dto/filter-book.dto.js';
@@ -41,10 +42,14 @@ export class BooksService {
     }
 
     if (filters.search) {
-      const term = filters.search;
+      const term = filters.search.trim();
+      const normalizedTerm = normalizeIsbn(term);
       where.OR = [
         { title: { contains: term, mode: 'insensitive' } },
         { isbn: { contains: term, mode: 'insensitive' } },
+        ...(normalizedTerm && normalizedTerm !== term
+          ? [{ isbn: { contains: normalizedTerm, mode: 'insensitive' } }]
+          : []),
         { publisher: { contains: term, mode: 'insensitive' } },
         { shelfLocation: { contains: term, mode: 'insensitive' } },
         { author: { name: { contains: term, mode: 'insensitive' } } },
@@ -101,13 +106,8 @@ export class BooksService {
   }
 
   async findByIsbn(isbn: string): Promise<Book> {
-    const book = await this.prisma.book.findUnique({
-      where: { isbn: isbn.trim() },
-      include: {
-        author: true,
-        category: true,
-      },
-    });
+    const normalizedIsbn = normalizeIsbn(isbn);
+    const book = await this.findBookRecordByIsbn(normalizedIsbn, isbn);
 
     if (!book) {
       throw new NotFoundException(`Không tìm thấy cuốn sách với mã ISBN "${isbn}"`);
@@ -117,11 +117,14 @@ export class BooksService {
   }
 
   async create(dto: CreateBookDto): Promise<Book> {
-    const existing = await this.prisma.book.findUnique({
-      where: { isbn: dto.isbn.trim() },
-    });
+    const normalizedIsbn = normalizeIsbn(dto.isbn);
+    if (!isValidIsbn13(normalizedIsbn)) {
+      throw new BadRequestException('ISBN phải gồm đúng 13 chữ số theo chuẩn ISBN-13');
+    }
+
+    const existing = await this.findBookRecordByIsbn(normalizedIsbn, dto.isbn);
     if (existing) {
-      throw new ConflictException(`Cuốn sách với mã ISBN "${dto.isbn}" đã tồn tại trong thư viện`);
+      throw new ConflictException(`Cuốn sách với mã ISBN "${normalizedIsbn}" đã tồn tại trong thư viện`);
     }
 
     const author = await this.prisma.author.findUnique({
@@ -140,7 +143,7 @@ export class BooksService {
 
     const created = await this.prisma.book.create({
       data: {
-        isbn: dto.isbn.trim(),
+        isbn: normalizedIsbn,
         title: dto.title.trim(),
         authorId: author.id,
         categoryId: category.id,
@@ -165,12 +168,18 @@ export class BooksService {
   async update(id: string, dto: UpdateBookDto): Promise<Book> {
     const book = await this.findOne(id);
 
-    if (dto.isbn && dto.isbn.trim() !== book.isbn) {
-      const duplicate = await this.prisma.book.findUnique({
-        where: { isbn: dto.isbn.trim() },
-      });
-      if (duplicate && duplicate.id !== id) {
-        throw new ConflictException(`Mã ISBN "${dto.isbn}" đã được sử dụng bởi cuốn sách khác`);
+    let normalizedIsbn: string | undefined;
+    if (dto.isbn !== undefined) {
+      normalizedIsbn = normalizeIsbn(dto.isbn);
+      if (!isValidIsbn13(normalizedIsbn)) {
+        throw new BadRequestException('ISBN phải gồm đúng 13 chữ số theo chuẩn ISBN-13');
+      }
+
+      if (normalizedIsbn !== normalizeIsbn(book.isbn)) {
+        const duplicate = await this.findBookRecordByIsbn(normalizedIsbn, dto.isbn);
+        if (duplicate && duplicate.id !== id) {
+          throw new ConflictException(`Mã ISBN "${normalizedIsbn}" đã được sử dụng bởi cuốn sách khác`);
+        }
       }
     }
 
@@ -200,7 +209,7 @@ export class BooksService {
 
     let status = (dto.status as any) ?? (book.status as any);
     if (newCopiesAvailable === 0 && status === BookStatus.AVAILABLE) {
-      status = BookStatus.OUT_OF_STOCK;
+      status = BookStatus.AVAILABLE === status ? BookStatus.OUT_OF_STOCK : status;
     } else if (newCopiesAvailable > 0 && status === BookStatus.OUT_OF_STOCK) {
       status = BookStatus.AVAILABLE;
     }
@@ -208,7 +217,7 @@ export class BooksService {
     const updated = await this.prisma.book.update({
       where: { id },
       data: {
-        ...(dto.isbn ? { isbn: dto.isbn.trim() } : {}),
+        ...(normalizedIsbn ? { isbn: normalizedIsbn } : {}),
         ...(dto.title ? { title: dto.title.trim() } : {}),
         ...(dto.authorId ? { authorId: dto.authorId } : {}),
         ...(dto.categoryId ? { categoryId: dto.categoryId } : {}),
@@ -254,10 +263,51 @@ export class BooksService {
     };
   }
 
+  private async findBookRecordByIsbn(normalizedIsbn: string, rawIsbn?: string): Promise<any> {
+    if (!normalizedIsbn) {
+      return null;
+    }
+
+    // 1. Tra cứu trực tiếp theo mã ISBN-13 chuẩn hóa (dạng 13 chữ số liền nhau)
+    const exactMatch = await this.prisma.book.findUnique({
+      where: { isbn: normalizedIsbn },
+      include: {
+        author: true,
+        category: true,
+      },
+    });
+    if (exactMatch) {
+      return exactMatch;
+    }
+
+    // 2. Hỗ trợ tương thích ngược cho dữ liệu cũ trong DB còn lưu dấu gạch ngang (ví dụ: 978-6042186780)
+    const orFilters: any[] = [];
+    if (rawIsbn && rawIsbn.trim() !== normalizedIsbn) {
+      orFilters.push({ isbn: rawIsbn.trim() });
+    }
+    if (normalizedIsbn.length >= 3) {
+      orFilters.push({ isbn: { startsWith: normalizedIsbn.slice(0, 3) } });
+    }
+
+    if (orFilters.length === 0) {
+      return null;
+    }
+
+    const candidates = await this.prisma.book.findMany({
+      where: { OR: orFilters },
+      include: {
+        author: true,
+        category: true,
+      },
+    });
+
+    return candidates.find((b) => normalizeIsbn(b.isbn) === normalizedIsbn) ?? null;
+  }
+
   private mapPrismaBookToEntity(book: any): Book {
     return {
       id: book.id,
-      isbn: book.isbn,
+      isbn: normalizeIsbn(book.isbn),
       title: book.title,
       authorId: book.authorId,
       authorName: book.author?.name || 'Chưa xác định',

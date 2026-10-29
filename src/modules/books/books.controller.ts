@@ -48,12 +48,13 @@ export class BooksController {
   @Get('isbn/:isbn')
   @ApiOperation({
     summary: 'Tra cứu sách theo mã ISBN',
-    description: 'Tìm kiếm thông tin sách dựa vào mã số tiêu chuẩn quốc tế ISBN-10 hoặc ISBN-13.',
+    description:
+      'Tìm kiếm thông tin sách dựa vào mã số tiêu chuẩn quốc tế ISBN-13 (hỗ trợ cả chuỗi có dấu gạch ngang hoặc 13 chữ số liền nhau từ máy quét EAN-13).',
   })
   @ApiParam({
     name: 'isbn',
     description: 'Mã ISBN cuốn sách',
-    example: '978-0132350884',
+    example: '9780132350884',
   })
   @ApiOkResponse({
     description: 'Thông tin cuốn sách tìm thấy',

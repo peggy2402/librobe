@@ -9,8 +9,8 @@ export class Book {
   id!: string;
 
   @ApiProperty({
-    description: 'Mã số tiêu chuẩn quốc tế cho sách (ISBN-10 hoặc ISBN-13)',
-    example: '978-0132350884',
+    description: 'Mã số tiêu chuẩn quốc tế cho sách (ISBN-13 dạng 13 chữ số không dấu gạch)',
+    example: '9780132350884',
   })
   isbn!: string;
 

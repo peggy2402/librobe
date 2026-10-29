@@ -403,7 +403,8 @@ const books = {
 
   async handleCreateBook(e) {
     e.preventDefault();
-    const isbn = document.getElementById('book-form-isbn')?.value.trim();
+    const rawIsbn = document.getElementById('book-form-isbn')?.value || '';
+    const isbn = rawIsbn.replace(/[\s\-–—]+/g, '').trim();
     const title = document.getElementById('book-form-title')?.value.trim();
     const authorId = document.getElementById('book-form-author')?.value;
     const categoryId = document.getElementById('book-form-category')?.value;

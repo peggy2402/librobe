@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsEnum,
   IsInt,
@@ -6,19 +7,25 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  Matches,
   Max,
   MaxLength,
   Min,
 } from 'class-validator';
 import { BookStatus } from '../../../common/enums/book-status.enum.js';
+import { normalizeIsbn } from '../../../common/utils/isbn.util.js';
 
 export class CreateBookDto {
   @ApiProperty({
-    description: 'Mã số tiêu chuẩn quốc tế cho sách (ISBN)',
-    example: '978-0132350884',
+    description: 'Mã số tiêu chuẩn quốc tế cho sách (ISBN-13, tự động chuẩn hóa về 13 chữ số không dấu gạch)',
+    example: '9780132350884',
   })
+  @Transform(({ value }) => (typeof value === 'string' ? normalizeIsbn(value) : value))
   @IsNotEmpty({ message: 'ISBN không được để trống' })
   @IsString({ message: 'ISBN phải là chuỗi ký tự' })
+  @Matches(/^\d{13}$/, {
+    message: 'ISBN phải gồm đúng 13 chữ số theo chuẩn ISBN-13',
+  })
   isbn!: string;
 
   @ApiProperty({

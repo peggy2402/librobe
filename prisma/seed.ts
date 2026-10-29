@@ -94,7 +94,7 @@ async function main() {
   const booksData = [
     {
       id: 'book-01',
-      isbn: '978-0132350884',
+      isbn: '9780132350884',
       title: 'Clean Code: A Handbook of Agile Software Craftsmanship',
       authorId: 'auth-01',
       categoryId: 'cat-01',
@@ -109,7 +109,7 @@ async function main() {
     },
     {
       id: 'book-02',
-      isbn: '978-0134494166',
+      isbn: '9780134494166',
       title: 'Clean Architecture: A Craftsman’s Guide to Software Structure',
       authorId: 'auth-01',
       categoryId: 'cat-01',
@@ -124,7 +124,7 @@ async function main() {
     },
     {
       id: 'book-03',
-      isbn: '978-0671027032',
+      isbn: '9780671027032',
       title: 'Đắc Nhân Tâm (How to Win Friends and Influence People)',
       authorId: 'auth-02',
       categoryId: 'cat-02',
@@ -139,7 +139,7 @@ async function main() {
     },
     {
       id: 'book-04',
-      isbn: '978-0062315007',
+      isbn: '9780062315007',
       title: 'Nhà Giả Kim (The Alchemist)',
       authorId: 'auth-03',
       categoryId: 'cat-03',
@@ -154,7 +154,7 @@ async function main() {
     },
     {
       id: 'book-05',
-      isbn: '978-0062316097',
+      isbn: '9780062316097',
       title: 'Sapiens: Lược Sử Loài Người',
       authorId: 'auth-04',
       categoryId: 'cat-05',
@@ -169,7 +169,7 @@ async function main() {
     },
     {
       id: 'book-06',
-      isbn: '978-6042186780',
+      isbn: '9786042186780',
       title: 'Mắt Biếc',
       authorId: 'auth-05',
       categoryId: 'cat-03',
