@@ -86,6 +86,10 @@ Tài liệu Swagger này cung cấp đầy đủ thông tin về các endpoints,
     .addTag('Authors - Quản lý Tác giả', 'Quản lý hồ sơ tác giả, tiểu sử và tác phẩm liên kết')
     .addTag('Members - Quản lý Độc Giả & Thẻ Thư Viện', 'Đăng ký thành viên, kiểm soát hạn thẻ và hạn mức mượn')
     .addTag('Borrowings - Quản lý Mượn / Trả Sách', 'Nghiệp vụ mượn sách, trả sách, gia hạn và tính phạt quá hạn')
+    .addTag(
+      'Borrowing Slips - Quản lý Phiếu Mượn Sách ERP (Master - Detail & Workflow)',
+      'Quy trình lập phiếu mượn đa dòng, phê duyệt chứng từ, trả từng phần và bồi thường mất mát',
+    )
     .addTag('Dashboard & Statistics - Thống kê Báo cáo', 'Báo cáo chỉ số tổng quan hoạt động thư viện')
     .addTag('Root - Điểm Đầu Của Ứng Dụng', 'Kiểm tra trạng thái máy chủ (Health Check)')
     .build();

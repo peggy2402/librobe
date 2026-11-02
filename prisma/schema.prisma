@@ -33,6 +33,31 @@ enum BorrowingStatus {
   OVERDUE
 }
 
+enum BorrowingSlipStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  BORROWED
+  PARTIAL_RETURNED
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+enum BorrowingItemStatus {
+  PENDING
+  BORROWING
+  RETURNED
+  LOST
+  CANCELLED
+}
+
+enum ReturnCondition {
+  GOOD
+  DAMAGED
+  LOST
+}
+
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
@@ -74,43 +99,46 @@ model Author {
 }
 
 model Book {
-  id              String          @id @default(uuid())
-  isbn            String          @unique
-  title           String
-  authorId        String          @map("author_id")
-  author          Author          @relation(fields: [authorId], references: [id], onDelete: Restrict)
-  categoryId      String          @map("category_id")
-  category        Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  publisher       String
-  publishYear     Int             @map("publish_year")
-  copiesTotal     Int             @default(1) @map("copies_total")
-  copiesAvailable Int             @default(1) @map("copies_available")
-  shelfLocation   String          @map("shelf_location")
-  status          BookStatus      @default(AVAILABLE)
-  coverUrl        String?         @map("cover_url")
-  description     String
-  borrowings      Borrowing[]
-  createdAt       DateTime        @default(now()) @map("created_at")
-  updatedAt       DateTime        @updatedAt @map("updated_at")
+  id                 String              @id @default(uuid())
+  isbn               String              @unique
+  title              String
+  authorId           String              @map("author_id")
+  author             Author              @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  categoryId         String              @map("category_id")
+  category           Category            @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  publisher          String
+  publishYear        Int                 @map("publish_year")
+  copiesTotal        Int                 @default(1) @map("copies_total")
+  copiesAvailable    Int                 @default(1) @map("copies_available")
+  price              Float               @default(150000)
+  shelfLocation      String              @map("shelf_location")
+  status             BookStatus          @default(AVAILABLE)
+  coverUrl           String?             @map("cover_url")
+  description        String
+  borrowings         Borrowing[]
+  borrowingSlipItems BorrowingSlipItem[]
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
 
   @@map("books")
 }
 
 model Member {
-  id                   String       @id @default(uuid())
-  cardNumber           String       @unique @map("card_number")
-  fullName             String       @map("full_name")
-  email                String       @unique
-  phone                String       @unique
+  id                   String          @id @default(uuid())
+  cardNumber           String          @unique @map("card_number")
+  fullName             String          @map("full_name")
+  email                String          @unique
+  phone                String          @unique
   address              String
-  membershipExpiry     DateTime     @map("membership_expiry")
-  status               MemberStatus @default(ACTIVE)
-  maxBorrowLimit       Int          @default(5) @map("max_borrow_limit")
-  currentBorrowedCount Int          @default(0) @map("current_borrowed_count")
+  membershipExpiry     DateTime        @map("membership_expiry")
+  status               MemberStatus    @default(ACTIVE)
+  maxBorrowLimit       Int             @default(5) @map("max_borrow_limit")
+  currentBorrowedCount Int             @default(0) @map("current_borrowed_count")
   user                 User?
   borrowings           Borrowing[]
-  createdAt            DateTime     @default(now()) @map("created_at")
-  updatedAt            DateTime     @updatedAt @map("updated_at")
+  borrowingSlips       BorrowingSlip[]
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
 
   @@map("members")
 }
@@ -134,4 +162,49 @@ model Borrowing {
   updatedAt       DateTime        @updatedAt @map("updated_at")
 
   @@map("borrowings")
+}
+
+model BorrowingSlip {
+  id           String              @id @default(uuid())
+  slipNumber   String              @unique @map("slip_number")
+  memberId     String              @map("member_id")
+  member       Member              @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  status       BorrowingSlipStatus @default(PENDING_APPROVAL)
+  borrowDate   DateTime?           @map("borrow_date")
+  dueDate      DateTime            @map("due_date")
+  approvedAt   DateTime?           @map("approved_at")
+  approvedBy   String?             @map("approved_by")
+  rejectedAt   DateTime?           @map("rejected_at")
+  rejectReason String?             @map("reject_reason")
+  cancelledAt  DateTime?           @map("cancelled_at")
+  cancelReason String?             @map("cancel_reason")
+  notes        String?
+  totalFine    Float               @default(0) @map("total_fine")
+  finePaid     Boolean             @default(false) @map("fine_paid")
+  items        BorrowingSlipItem[]
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+
+  @@map("borrowing_slips")
+}
+
+model BorrowingSlipItem {
+  id               String              @id @default(uuid())
+  slipId           String              @map("slip_id")
+  slip             BorrowingSlip       @relation(fields: [slipId], references: [id], onDelete: Cascade)
+  bookId           String              @map("book_id")
+  book             Book                @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  quantity         Int                 @default(1)
+  returnedQuantity Int                 @default(0) @map("returned_quantity")
+  lostQuantity     Int                 @default(0) @map("lost_quantity")
+  bookPrice        Float               @default(150000) @map("book_price")
+  status           BorrowingItemStatus @default(PENDING)
+  returnDate       DateTime?           @map("return_date")
+  returnCondition  ReturnCondition?    @map("return_condition")
+  fineAmount       Float               @default(0) @map("fine_amount")
+  notes            String?
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  @@map("borrowing_slip_items")
 }

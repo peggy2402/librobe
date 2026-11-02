@@ -124,6 +124,108 @@ export class MembersService {
     };
   }
 
+  async getDebtSummary(id: string): Promise<{
+    memberId: string;
+    cardNumber: string;
+    fullName: string;
+    status: MemberStatus;
+    membershipExpiry: Date;
+    maxBorrowLimit: number;
+    currentBorrowedCount: number;
+    remainingBorrowLimit: number;
+    totalUnpaidFine: number;
+    hasOverdue: boolean;
+    canBorrow: boolean;
+    reasonIfNotAllowed?: string;
+  }> {
+    const now = new Date();
+    const member = await this.prisma.member.findUnique({
+      where: { id },
+      include: {
+        borrowings: true,
+        borrowingSlips: {
+          include: { items: true },
+        },
+      },
+    });
+
+    if (!member) {
+      throw new NotFoundException(`Không tìm thấy độc giả với ID "${id}"`);
+    }
+
+    // 1. Tính tổng sách đang mượn từ cả hai nguồn (phiếu đơn cũ và phiếu master mới)
+    const activeOldBorrowings = member.borrowings.filter((b) =>
+      [BorrowingStatus.BORROWED, BorrowingStatus.OVERDUE].includes(b.status as any),
+    );
+    const activeSlipItemsCount = member.borrowingSlips
+      .filter((s) => ['BORROWED', 'PARTIAL_RETURNED'].includes(s.status as any))
+      .reduce((sum, s) => {
+        const remainingInSlip = s.items
+          .filter((item) => ['PENDING', 'BORROWING'].includes(item.status as any))
+          .reduce((itemSum, item) => itemSum + (item.quantity - item.returnedQuantity - item.lostQuantity), 0);
+        return sum + remainingInSlip;
+      }, 0);
+
+    const currentBorrowedCount = activeOldBorrowings.length + activeSlipItemsCount;
+    const remainingBorrowLimit = Math.max(0, member.maxBorrowLimit - currentBorrowedCount);
+
+    // 2. Tính tiền phạt chưa thanh toán
+    const oldUnpaidFine = member.borrowings
+      .filter((b) => !b.finePaid && b.fineAmount > 0)
+      .reduce((sum, b) => sum + b.fineAmount, 0);
+
+    const slipUnpaidFine = member.borrowingSlips
+      .filter((s) => !s.finePaid && s.totalFine > 0)
+      .reduce((sum, s) => sum + s.totalFine, 0);
+
+    const totalUnpaidFine = oldUnpaidFine + slipUnpaidFine;
+
+    // 3. Kiểm tra quá hạn
+    const hasOldOverdue = activeOldBorrowings.some(
+      (b) => b.status === BorrowingStatus.OVERDUE || new Date(b.dueDate) < now,
+    );
+    const hasSlipOverdue = member.borrowingSlips.some(
+      (s) => ['BORROWED', 'PARTIAL_RETURNED'].includes(s.status as any) && new Date(s.dueDate) < now,
+    );
+    const hasOverdue = hasOldOverdue || hasSlipOverdue;
+
+    // 4. Quyết định khả năng mượn sách tiếp
+    let canBorrow = true;
+    let reasonIfNotAllowed: string | undefined;
+
+    if (member.status !== MemberStatus.ACTIVE) {
+      canBorrow = false;
+      reasonIfNotAllowed = `Thẻ độc giả đang ở trạng thái "${member.status}"`;
+    } else if (new Date(member.membershipExpiry) < now) {
+      canBorrow = false;
+      reasonIfNotAllowed = 'Thẻ thư viện của độc giả đã hết hạn sử dụng';
+    } else if (hasOverdue) {
+      canBorrow = false;
+      reasonIfNotAllowed = 'Độc giả có sách mượn đã quá hạn chưa hoàn trả';
+    } else if (totalUnpaidFine > 0) {
+      canBorrow = false;
+      reasonIfNotAllowed = `Độc giả còn nợ tiền phạt chưa thanh toán (${totalUnpaidFine.toLocaleString('vi-VN')} VNĐ)`;
+    } else if (remainingBorrowLimit <= 0) {
+      canBorrow = false;
+      reasonIfNotAllowed = `Độc giả đã sử dụng hết hạn mức mượn (${member.maxBorrowLimit} cuốn)`;
+    }
+
+    return {
+      memberId: member.id,
+      cardNumber: member.cardNumber,
+      fullName: member.fullName,
+      status: member.status as MemberStatus,
+      membershipExpiry: member.membershipExpiry,
+      maxBorrowLimit: member.maxBorrowLimit,
+      currentBorrowedCount,
+      remainingBorrowLimit,
+      totalUnpaidFine,
+      hasOverdue,
+      canBorrow,
+      reasonIfNotAllowed,
+    };
+  }
+
   async findByCardNumber(cardNumber: string): Promise<Member> {
     const member = await this.prisma.member.findUnique({
       where: { cardNumber: cardNumber.trim() },

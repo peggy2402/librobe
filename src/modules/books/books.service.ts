@@ -151,6 +151,7 @@ export class BooksService {
         publishYear: dto.publishYear,
         copiesTotal: dto.copiesTotal,
         copiesAvailable: dto.copiesTotal,
+        price: dto.price ?? 150000,
         shelfLocation: dto.shelfLocation.trim(),
         status: (dto.status as any) ?? BookStatus.AVAILABLE,
         coverUrl: dto.coverUrl?.trim() || null,
@@ -263,6 +264,27 @@ export class BooksService {
     };
   }
 
+  async stockCheck(id: string): Promise<{
+    bookId: string;
+    title: string;
+    copiesTotal: number;
+    copiesAvailable: number;
+    price: number;
+    status: BookStatus;
+    isAvailable: boolean;
+  }> {
+    const book = await this.findOne(id);
+    return {
+      bookId: book.id,
+      title: book.title,
+      copiesTotal: book.copiesTotal,
+      copiesAvailable: book.copiesAvailable,
+      price: book.price,
+      status: book.status,
+      isAvailable: book.copiesAvailable > 0 && book.status === BookStatus.AVAILABLE,
+    };
+  }
+
   private async findBookRecordByIsbn(normalizedIsbn: string, rawIsbn?: string): Promise<any> {
     if (!normalizedIsbn) {
       return null;
@@ -317,6 +339,7 @@ export class BooksService {
       publishYear: book.publishYear,
       copiesTotal: book.copiesTotal,
       copiesAvailable: book.copiesAvailable,
+      price: book.price ?? 150000,
       shelfLocation: book.shelfLocation,
       status: book.status as BookStatus,
       coverUrl: book.coverUrl || undefined,

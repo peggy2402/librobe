@@ -357,12 +357,91 @@ async function main() {
     });
   }
 
-  console.log('✅ Hoàn tất nạp dữ liệu hạt giống vào Supabase!');
+  // 7. Phiếu mượn ERP Master - Detail mẫu (BorrowingSlip)
+  const slipsData = [
+    {
+      id: 'slip-01',
+      slipNumber: 'SLIP-2026-0001',
+      memberId: 'mem-01',
+      status: 'BORROWED' as const,
+      borrowDate: new Date('2026-10-20T08:00:00Z'),
+      dueDate: new Date('2026-11-03T08:00:00Z'),
+      approvedAt: new Date('2026-10-20T08:30:00Z'),
+      approvedBy: 'librarian@librobe.com',
+      notes: 'Phiếu mượn nghiên cứu kiến trúc phần mềm',
+      totalFine: 0,
+      finePaid: false,
+    },
+    {
+      id: 'slip-02',
+      slipNumber: 'SLIP-2026-0002',
+      memberId: 'mem-02',
+      status: 'PENDING_APPROVAL' as const,
+      dueDate: new Date('2026-11-16T08:00:00Z'),
+      notes: 'Đăng ký mượn qua ứng dụng di động Flutter',
+      totalFine: 0,
+      finePaid: false,
+    },
+  ];
+
+  for (const slip of slipsData) {
+    await prisma.borrowingSlip.upsert({
+      where: { id: slip.id },
+      update: slip,
+      create: slip,
+    });
+  }
+
+  const slipItemsData = [
+    {
+      id: 'slip-item-01',
+      slipId: 'slip-01',
+      bookId: 'book-01',
+      quantity: 1,
+      returnedQuantity: 0,
+      lostQuantity: 0,
+      bookPrice: 250000,
+      status: 'BORROWING' as const,
+      fineAmount: 0,
+    },
+    {
+      id: 'slip-item-02',
+      slipId: 'slip-01',
+      bookId: 'book-02',
+      quantity: 1,
+      returnedQuantity: 0,
+      lostQuantity: 0,
+      bookPrice: 300000,
+      status: 'BORROWING' as const,
+      fineAmount: 0,
+    },
+    {
+      id: 'slip-item-03',
+      slipId: 'slip-02',
+      bookId: 'book-03',
+      quantity: 1,
+      returnedQuantity: 0,
+      lostQuantity: 0,
+      bookPrice: 180000,
+      status: 'PENDING' as const,
+      fineAmount: 0,
+    },
+  ];
+
+  for (const item of slipItemsData) {
+    await prisma.borrowingSlipItem.upsert({
+      where: { id: item.id },
+      update: item,
+      create: item,
+    });
+  }
+
+  console.log('[SEED] Hoan tat nap du lieu hat giong vao Supabase thanh cong');
 }
 
 main()
   .catch((e) => {
-    console.error('❌ Lỗi khi nạp dữ liệu:', e);
+    console.error('[SEED ERROR] Loi khi nap du lieu:', e);
     process.exit(1);
   })
   .finally(async () => {

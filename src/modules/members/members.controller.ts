@@ -66,6 +66,40 @@ export class MembersController {
     return this.membersService.findByCardNumber(cardNumber);
   }
 
+  @Get(':id/debt-summary')
+  @ApiOperation({
+    summary: 'Tổng hợp công nợ phạt và hạn mức mượn sách của độc giả (Debt & Credit Limit)',
+    description:
+      'Trả về số sách đang mượn, hạn mức mượn còn lại, tổng tiền phạt nợ đọng và kiểm tra điều kiện được phép lập phiếu mượn mới.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Mã ID độc giả',
+    example: 'mem-01',
+  })
+  @ApiOkResponse({
+    description: 'Báo cáo công nợ và hạn mức của độc giả',
+    schema: {
+      type: 'object',
+      properties: {
+        memberId: { type: 'string', example: 'mem-01' },
+        cardNumber: { type: 'string', example: 'LIB-2026-0001' },
+        fullName: { type: 'string', example: 'Nguyễn Văn A' },
+        status: { type: 'string', example: 'ACTIVE' },
+        maxBorrowLimit: { type: 'number', example: 5 },
+        currentBorrowedCount: { type: 'number', example: 3 },
+        remainingBorrowLimit: { type: 'number', example: 2 },
+        totalUnpaidFine: { type: 'number', example: 0 },
+        hasOverdue: { type: 'boolean', example: false },
+        canBorrow: { type: 'boolean', example: true },
+        reasonIfNotAllowed: { type: 'string', nullable: true },
+      },
+    },
+  })
+  getDebtSummary(@Param('id') id: string) {
+    return this.membersService.getDebtSummary(id);
+  }
+
   @Get(':id')
   @ApiOperation({
     summary: 'Lấy thông tin chi tiết một độc giả',

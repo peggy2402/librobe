@@ -6,6 +6,7 @@ import { AuthModule } from './modules/auth/auth.module.js';
 import { AuthorsModule } from './modules/authors/authors.module.js';
 import { BooksModule } from './modules/books/books.module.js';
 import { BorrowingsModule } from './modules/borrowings/borrowings.module.js';
+import { BorrowingSlipsModule } from './modules/borrowing-slips/borrowing-slips.module.js';
 import { CategoriesModule } from './modules/categories/categories.module.js';
 import { MembersModule } from './modules/members/members.module.js';
 import { PrismaModule } from './modules/prisma/prisma.module.js';
@@ -33,6 +34,7 @@ const hasObserveKey = Boolean(process.env.OBSERVE_APP_KEY && process.env.OBSERVE
     BooksModule,
     MembersModule,
     BorrowingsModule,
+    BorrowingSlipsModule,
     StatsModule,
   ],
   controllers: [AppController],

@@ -94,6 +94,16 @@ export class CreateBookDto {
   shelfLocation!: string;
 
   @ApiPropertyOptional({
+    description: 'Đơn giá niêm yết của cuốn sách (VNĐ)',
+    example: 250000,
+    default: 150000,
+  })
+  @IsOptional()
+  @IsInt({ message: 'Giá sách phải là số nguyên' })
+  @Min(0, { message: 'Giá sách không được âm' })
+  price?: number;
+
+  @ApiPropertyOptional({
     description: 'Trạng thái sách trong thư viện',
     enum: BookStatus,
     default: BookStatus.AVAILABLE,

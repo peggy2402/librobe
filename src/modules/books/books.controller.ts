@@ -67,6 +67,36 @@ export class BooksController {
     return this.booksService.findByIsbn(isbn);
   }
 
+  @Get(':id/stock-check')
+  @ApiOperation({
+    summary: 'Kiểm tra tồn kho tức thời của cuốn sách (Stock Check)',
+    description:
+      'Dành cho Flutter Client kiểm tra số lượng bản in khả dụng trước khi người dùng xác nhận mượn, tránh xung đột tồn kho.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Mã định danh ID của cuốn sách',
+    example: 'book-01',
+  })
+  @ApiOkResponse({
+    description: 'Thông tin tồn kho tức thời',
+    schema: {
+      type: 'object',
+      properties: {
+        bookId: { type: 'string', example: 'book-01' },
+        title: { type: 'string', example: 'Clean Code' },
+        copiesTotal: { type: 'number', example: 8 },
+        copiesAvailable: { type: 'number', example: 6 },
+        price: { type: 'number', example: 250000 },
+        status: { type: 'string', example: 'AVAILABLE' },
+        isAvailable: { type: 'boolean', example: true },
+      },
+    },
+  })
+  stockCheck(@Param('id') id: string) {
+    return this.booksService.stockCheck(id);
+  }
+
   @Get(':id')
   @ApiOperation({
     summary: 'Lấy thông tin chi tiết một cuốn sách',

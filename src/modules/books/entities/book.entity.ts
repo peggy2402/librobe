@@ -69,6 +69,13 @@ export class Book {
   copiesAvailable!: number;
 
   @ApiProperty({
+    description: 'Đơn giá niêm yết của cuốn sách (VNĐ) - dùng tính bồi thường mất mát',
+    example: 250000,
+    default: 150000,
+  })
+  price!: number;
+
+  @ApiProperty({
     description: 'Vị trí lưu trữ trong thư viện (Kệ - Tầng - Ngăn)',
     example: 'Kệ A3 - Tầng 2 - Ô 14',
   })
