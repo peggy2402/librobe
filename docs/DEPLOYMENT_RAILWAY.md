@@ -27,6 +27,11 @@ Trên giao diện dự án tại [Railway Dashboard](https://railway.com/) ➔ C
 | `DIRECT_URL` | `postgresql://postgres.ovisszrdeqjdgkdhljjn:Chienhpt102%24%24@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres` | Chuỗi kết nối trực tiếp Prisma |
 | `ADMIN_USERNAME`| `chien` | Tên tài khoản Master Admin |
 | `ADMIN_PASSWORD`| `Chienhpt102$$` | Mật khẩu tài khoản Master Admin |
+| `APP_BASE_URL` | URL public của ứng dụng, ví dụ `https://api.example.com` | Domain được dùng trong liên kết reset |
+| `MAIL_PROVIDER` | `resend` | Provider gửi email production |
+| `RESEND_API_KEY` | Secret của Resend | API key gửi email |
+| `MAIL_FROM` | `Librobe <no-reply@example.com>` | Địa chỉ gửi đã xác thực domain |
+| `RESET_TOKEN_TTL_MINUTES` | `20` | Thời hạn token reset, tối thiểu 5 phút |
 
 ---
 

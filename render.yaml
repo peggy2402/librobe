@@ -20,3 +20,13 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: MAIL_PROVIDER
+        value: resend
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: RESET_TOKEN_TTL_MINUTES
+        value: '20'

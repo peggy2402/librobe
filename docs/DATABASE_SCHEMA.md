@@ -93,5 +93,15 @@ Dự án sử dụng hệ quản trị cơ sở dữ liệu quan hệ **PostgreS
 * `isActive` (`Boolean`, default true).
 * `memberId` (`String`, Unique, Nullable): Liên kết sang hồ sơ độc giả nếu vai trò là `MEMBER`.
 
-### E. Bảng `categories` & `authors`
+### E. Bảng `password_reset_tokens` (Token Đặt Lại Mật Khẩu)
+* `id` (`String`, Primary Key): Mã token nội bộ.
+* `user_id` (`String`, Foreign Key -> `users.id`): Tài khoản yêu cầu reset.
+* `token_hash` (`String`, Unique): Bản băm SHA-256 của token gửi qua email; token thô không được lưu.
+* `expires_at` (`DateTime`): Thời điểm hết hạn, mặc định theo `RESET_TOKEN_TTL_MINUTES`.
+* `used_at` (`DateTime`, Nullable): Thời điểm token được sử dụng; `null` nghĩa là chưa dùng.
+* `created_at` (`DateTime`): Thời điểm tạo token.
+
+Mỗi tài khoản chỉ giữ token reset mới nhất. Token đã dùng hoặc hết hạn không thể sử dụng lại.
+
+### F. Bảng `categories` & `authors`
 * Lưu danh mục thể loại (Công nghệ thông tin, Kinh tế, Văn học...) và tiểu sử tác giả.
