@@ -4,9 +4,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import {
+  BorrowingItemStatus as ItemStatus,
+  BorrowingSlipStatus as SlipStatus,
+  Prisma,
+} from '@prisma/client';
 import { PaginatedResponseDto } from '../../common/dto/pagination.dto.js';
 import { BorrowingStatus } from '../../common/enums/borrowing-status.enum.js';
 import { MemberStatus } from '../../common/enums/member-status.enum.js';
+import { LoanEligibilityService } from '../loan-policy/loan-eligibility.service.js';
+import { LoanPolicyService } from '../loan-policy/loan-policy.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateMemberDto } from './dto/create-member.dto.js';
 import { FilterMemberDto } from './dto/filter-member.dto.js';
@@ -15,7 +22,11 @@ import { Member } from './entities/member.entity.js';
 
 @Injectable()
 export class MembersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly policy: LoanPolicyService,
+    private readonly eligibility: LoanEligibilityService,
+  ) {}
 
   async findAll(filters: FilterMemberDto): Promise<PaginatedResponseDto<Member>> {
     const page = filters.page || 1;
@@ -49,13 +60,7 @@ export class MembersService {
         where,
         skip,
         take: limit,
-        include: {
-          borrowings: {
-            where: {
-              status: { in: [BorrowingStatus.BORROWED, BorrowingStatus.OVERDUE] },
-            },
-          },
-        },
+        include: this.activeLoanInclude(),
         orderBy: filters.sortBy
           ? { [filters.sortBy]: (filters.sortOrder ?? 'DESC').toLowerCase() }
           : { createdAt: 'desc' },
@@ -72,7 +77,7 @@ export class MembersService {
       membershipExpiry: m.membershipExpiry,
       status: m.status as MemberStatus,
       maxBorrowLimit: m.maxBorrowLimit,
-      currentBorrowedCount: m.borrowings.length,
+      currentBorrowedCount: this.countActiveBorrowed(m),
       createdAt: m.createdAt,
       updatedAt: m.updatedAt,
     }));
@@ -95,13 +100,7 @@ export class MembersService {
   async findOne(id: string): Promise<Member> {
     const member = await this.prisma.member.findUnique({
       where: { id },
-      include: {
-        borrowings: {
-          where: {
-            status: { in: [BorrowingStatus.BORROWED, BorrowingStatus.OVERDUE] },
-          },
-        },
-      },
+      include: this.activeLoanInclude(),
     });
 
     if (!member) {
@@ -118,12 +117,64 @@ export class MembersService {
       membershipExpiry: member.membershipExpiry,
       status: member.status as MemberStatus,
       maxBorrowLimit: member.maxBorrowLimit,
-      currentBorrowedCount: member.borrowings.length,
+      currentBorrowedCount: this.countActiveBorrowed(member),
       createdAt: member.createdAt,
       updatedAt: member.updatedAt,
     };
   }
 
+  /**
+   * Include dùng chung để đếm số sách độc giả đang giữ.
+   * Phải cộng cả hai luồng mượn (phiếu lẻ `borrowings` và phiếu ERP
+   * `borrowingSlips`), nếu không `currentBorrowedCount` trả ra cho frontend sẽ
+   * thiếu phần sách mượn qua phiếu ERP như bản code cũ.
+   */
+  private activeLoanInclude() {
+    return {
+      borrowings: {
+        where: {
+          status: { in: [BorrowingStatus.BORROWED, BorrowingStatus.OVERDUE] },
+        },
+      },
+      borrowingSlips: {
+        where: { status: { in: [SlipStatus.BORROWED, SlipStatus.PARTIAL_RETURNED] } },
+        include: {
+          items: {
+            where: { status: { in: [ItemStatus.PENDING, ItemStatus.BORROWING] } },
+          },
+        },
+      },
+    } satisfies Prisma.MemberInclude;
+  }
+
+  private countActiveBorrowed(member: {
+    borrowings: unknown[];
+    borrowingSlips?: {
+      items: { quantity: number; returnedQuantity: number; lostQuantity: number }[];
+    }[];
+  }): number {
+    const fromSlips = (member.borrowingSlips ?? []).reduce(
+      (total, slip) =>
+        total +
+        slip.items.reduce(
+          (sum, item) =>
+            sum + Math.max(0, item.quantity - item.returnedQuantity - item.lostQuantity),
+          0,
+        ),
+      0,
+    );
+
+    return member.borrowings.length + fromSlips;
+  }
+
+  /**
+   * Tóm tắt tình trạng mượn/nợ của độc giả.
+   *
+   * Phần tính toán đã được chuyển sang `LoanEligibilityService` để endpoint này
+   * và các luồng ghi (mượn sách, lập phiếu mượn) dùng chung đúng một bộ luật.
+   * Cấu trúc response giữ nguyên để không ảnh hưởng frontend đang gọi
+   * `GET /api/members/:id/debt-summary`.
+   */
   async getDebtSummary(id: string): Promise<{
     memberId: string;
     cardNumber: string;
@@ -134,108 +185,36 @@ export class MembersService {
     currentBorrowedCount: number;
     remainingBorrowLimit: number;
     totalUnpaidFine: number;
+    overdueCount: number;
     hasOverdue: boolean;
     canBorrow: boolean;
+    blockReason?: string;
     reasonIfNotAllowed?: string;
   }> {
-    const now = new Date();
-    const member = await this.prisma.member.findUnique({
-      where: { id },
-      include: {
-        borrowings: true,
-        borrowingSlips: {
-          include: { items: true },
-        },
-      },
-    });
-
-    if (!member) {
-      throw new NotFoundException(`Không tìm thấy độc giả với ID "${id}"`);
-    }
-
-    // 1. Tính tổng sách đang mượn từ cả hai nguồn (phiếu đơn cũ và phiếu master mới)
-    const activeOldBorrowings = member.borrowings.filter((b) =>
-      [BorrowingStatus.BORROWED, BorrowingStatus.OVERDUE].includes(b.status as any),
-    );
-    const activeSlipItemsCount = member.borrowingSlips
-      .filter((s) => ['BORROWED', 'PARTIAL_RETURNED'].includes(s.status as any))
-      .reduce((sum, s) => {
-        const remainingInSlip = s.items
-          .filter((item) => ['PENDING', 'BORROWING'].includes(item.status as any))
-          .reduce((itemSum, item) => itemSum + (item.quantity - item.returnedQuantity - item.lostQuantity), 0);
-        return sum + remainingInSlip;
-      }, 0);
-
-    const currentBorrowedCount = activeOldBorrowings.length + activeSlipItemsCount;
-    const remainingBorrowLimit = Math.max(0, member.maxBorrowLimit - currentBorrowedCount);
-
-    // 2. Tính tiền phạt chưa thanh toán
-    const oldUnpaidFine = member.borrowings
-      .filter((b) => !b.finePaid && b.fineAmount > 0)
-      .reduce((sum, b) => sum + b.fineAmount, 0);
-
-    const slipUnpaidFine = member.borrowingSlips
-      .filter((s) => !s.finePaid && s.totalFine > 0)
-      .reduce((sum, s) => sum + s.totalFine, 0);
-
-    const totalUnpaidFine = oldUnpaidFine + slipUnpaidFine;
-
-    // 3. Kiểm tra quá hạn
-    const hasOldOverdue = activeOldBorrowings.some(
-      (b) => b.status === BorrowingStatus.OVERDUE || new Date(b.dueDate) < now,
-    );
-    const hasSlipOverdue = member.borrowingSlips.some(
-      (s) => ['BORROWED', 'PARTIAL_RETURNED'].includes(s.status as any) && new Date(s.dueDate) < now,
-    );
-    const hasOverdue = hasOldOverdue || hasSlipOverdue;
-
-    // 4. Quyết định khả năng mượn sách tiếp
-    let canBorrow = true;
-    let reasonIfNotAllowed: string | undefined;
-
-    if (member.status !== MemberStatus.ACTIVE) {
-      canBorrow = false;
-      reasonIfNotAllowed = `Thẻ độc giả đang ở trạng thái "${member.status}"`;
-    } else if (new Date(member.membershipExpiry) < now) {
-      canBorrow = false;
-      reasonIfNotAllowed = 'Thẻ thư viện của độc giả đã hết hạn sử dụng';
-    } else if (hasOverdue) {
-      canBorrow = false;
-      reasonIfNotAllowed = 'Độc giả có sách mượn đã quá hạn chưa hoàn trả';
-    } else if (totalUnpaidFine > 0) {
-      canBorrow = false;
-      reasonIfNotAllowed = `Độc giả còn nợ tiền phạt chưa thanh toán (${totalUnpaidFine.toLocaleString('vi-VN')} VNĐ)`;
-    } else if (remainingBorrowLimit <= 0) {
-      canBorrow = false;
-      reasonIfNotAllowed = `Độc giả đã sử dụng hết hạn mức mượn (${member.maxBorrowLimit} cuốn)`;
-    }
+    const state = await this.eligibility.getMemberLoanState(id);
 
     return {
-      memberId: member.id,
-      cardNumber: member.cardNumber,
-      fullName: member.fullName,
-      status: member.status as MemberStatus,
-      membershipExpiry: member.membershipExpiry,
-      maxBorrowLimit: member.maxBorrowLimit,
-      currentBorrowedCount,
-      remainingBorrowLimit,
-      totalUnpaidFine,
-      hasOverdue,
-      canBorrow,
-      reasonIfNotAllowed,
+      memberId: state.memberId,
+      cardNumber: state.cardNumber,
+      fullName: state.fullName,
+      status: state.status,
+      membershipExpiry: state.membershipExpiry,
+      maxBorrowLimit: state.maxBorrowLimit,
+      currentBorrowedCount: state.currentBorrowedCount,
+      remainingBorrowLimit: state.remainingBorrowLimit,
+      totalUnpaidFine: state.totalUnpaidFine,
+      overdueCount: state.overdueCount,
+      hasOverdue: state.hasOverdue,
+      canBorrow: state.canBorrow,
+      blockReason: state.blockReason,
+      reasonIfNotAllowed: state.reasonIfNotAllowed,
     };
   }
 
   async findByCardNumber(cardNumber: string): Promise<Member> {
     const member = await this.prisma.member.findUnique({
       where: { cardNumber: cardNumber.trim() },
-      include: {
-        borrowings: {
-          where: {
-            status: { in: [BorrowingStatus.BORROWED, BorrowingStatus.OVERDUE] },
-          },
-        },
-      },
+      include: this.activeLoanInclude(),
     });
 
     if (!member) {
@@ -252,7 +231,7 @@ export class MembersService {
       membershipExpiry: member.membershipExpiry,
       status: member.status as MemberStatus,
       maxBorrowLimit: member.maxBorrowLimit,
-      currentBorrowedCount: member.borrowings.length,
+      currentBorrowedCount: this.countActiveBorrowed(member),
       createdAt: member.createdAt,
       updatedAt: member.updatedAt,
     };
@@ -293,7 +272,7 @@ export class MembersService {
         address: dto.address.trim(),
         membershipExpiry: expiryDate,
         status: MemberStatus.ACTIVE,
-        maxBorrowLimit: dto.maxBorrowLimit ?? 5,
+        maxBorrowLimit: dto.maxBorrowLimit ?? this.policy.defaultMaxBorrowLimit,
         currentBorrowedCount: 0,
       },
     });
@@ -346,13 +325,7 @@ export class MembersService {
         ...(expiry ? { membershipExpiry: expiry } : {}),
         ...(dto.maxBorrowLimit !== undefined ? { maxBorrowLimit: dto.maxBorrowLimit } : {}),
       },
-      include: {
-        borrowings: {
-          where: {
-            status: { in: [BorrowingStatus.BORROWED, BorrowingStatus.OVERDUE] },
-          },
-        },
-      },
+      include: this.activeLoanInclude(),
     });
 
     return {
@@ -365,7 +338,7 @@ export class MembersService {
       membershipExpiry: updated.membershipExpiry,
       status: updated.status as MemberStatus,
       maxBorrowLimit: updated.maxBorrowLimit,
-      currentBorrowedCount: updated.borrowings.length,
+      currentBorrowedCount: this.countActiveBorrowed(updated),
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
     };
@@ -374,16 +347,26 @@ export class MembersService {
   async remove(id: string): Promise<{ message: string; deletedId: string }> {
     const member = await this.findOne(id);
 
-    const activeBorrowings = await this.prisma.borrowing.count({
-      where: {
-        memberId: id,
-        status: { in: [BorrowingStatus.BORROWED, BorrowingStatus.OVERDUE] },
-      },
-    });
+    // Phải tính cả hai luồng mượn, nếu không một độc giả còn giữ sách qua
+    // phiếu mượn ERP vẫn bị xóa và `onDelete: Restrict` sẽ bật lỗi tầng DB.
+    const [activeBorrowings, activeSlips] = await Promise.all([
+      this.prisma.borrowing.count({
+        where: {
+          memberId: id,
+          status: { in: [BorrowingStatus.BORROWED, BorrowingStatus.OVERDUE] },
+        },
+      }),
+      this.prisma.borrowingSlip.count({
+        where: {
+          memberId: id,
+          status: { in: ['PENDING_APPROVAL', 'BORROWED', 'PARTIAL_RETURNED'] },
+        },
+      }),
+    ]);
 
-    if (activeBorrowings > 0) {
+    if (activeBorrowings + activeSlips > 0) {
       throw new ConflictException(
-        `Không thể xóa độc giả này vì hiện còn ${activeBorrowings} cuốn sách chưa hoàn trả`,
+        `Không thể xóa độc giả này vì hiện còn ${activeBorrowings} phiếu mượn lẻ và ${activeSlips} phiếu mượn chưa hoàn tất`,
       );
     }
 

@@ -243,16 +243,26 @@ export class BooksService {
   async remove(id: string): Promise<{ message: string; deletedId: string }> {
     await this.findOne(id);
 
-    const activeBorrowings = await this.prisma.borrowing.count({
-      where: {
-        bookId: id,
-        status: { in: [BorrowingStatus.BORROWED, BorrowingStatus.OVERDUE] },
-      },
-    });
+    // Code cũ chỉ đếm bảng `borrowings`, nên một cuốn sách đang nằm trong phiếu
+    // mượn ERP vẫn bị xóa và lỗi ràng buộc khóa ngoại bật lên ở tầng DB.
+    const [activeBorrowings, activeSlipItems] = await Promise.all([
+      this.prisma.borrowing.count({
+        where: {
+          bookId: id,
+          status: { in: [BorrowingStatus.BORROWED, BorrowingStatus.OVERDUE] },
+        },
+      }),
+      this.prisma.borrowingSlipItem.count({
+        where: {
+          bookId: id,
+          status: { in: ['PENDING', 'BORROWING'] },
+        },
+      }),
+    ]);
 
-    if (activeBorrowings > 0) {
+    if (activeBorrowings + activeSlipItems > 0) {
       throw new ConflictException(
-        `Không thể xóa cuốn sách này vì hiện có ${activeBorrowings} phiếu mượn đang chưa hoàn trả`,
+        `Không thể xóa cuốn sách này vì hiện có ${activeBorrowings} phiếu mượn lẻ và ${activeSlipItems} dòng phiếu mượn chưa hoàn trả`,
       );
     }
 
@@ -281,7 +291,8 @@ export class BooksService {
       copiesAvailable: book.copiesAvailable,
       price: book.price,
       status: book.status,
-      isAvailable: book.copiesAvailable > 0 && book.status === BookStatus.AVAILABLE,
+      // Chỉ cần còn bản khả dụng và sách chưa ngừng lưu hành là cho mượn được.
+      isAvailable: book.copiesAvailable > 0 && book.status !== BookStatus.DISCONTINUED,
     };
   }
 

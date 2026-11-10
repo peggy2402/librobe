@@ -14,9 +14,11 @@ import {
   ApiBearerAuth,
   ApiCreatedResponse,
   ApiNotFoundResponse,
+  ApiConflictResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiQuery,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -26,6 +28,7 @@ import { FilterBorrowingDto } from './dto/filter-borrowing.dto.js';
 import { RenewLoanDto } from './dto/renew-loan.dto.js';
 import { ReturnBookDto } from './dto/return-book.dto.js';
 import { Borrowing } from './entities/borrowing.entity.js';
+import { LoanRenewalHistory } from './entities/loan-renewal.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 
 @ApiTags('Borrowings - Quản lý Mượn / Trả Sách')
@@ -66,6 +69,36 @@ export class BorrowingsController {
     return this.borrowingsService.getOverdueLoans();
   }
 
+  @Get('fines/unpaid')
+  @ApiOperation({
+    summary: 'Danh sách khoản phạt chưa thanh toán',
+    description:
+      'Liệt kê các phiếu mượn còn nợ tiền phạt kèm tổng số tiền. Lọc theo một độc giả bằng query `memberId`. ' +
+      'Khoản phạt tồn tại độc lập với việc sách đã được trả hay chưa.',
+  })
+  @ApiQuery({
+    name: 'memberId',
+    required: false,
+    description: 'Chỉ lấy khoản phạt của một độc giả',
+    example: 'mem-01',
+  })
+  @ApiOkResponse({ description: 'Tổng tiền phạt chưa thu và danh sách phiếu mượn liên quan' })
+  getUnpaidFines(@Query('memberId') memberId?: string) {
+    return this.borrowingsService.getUnpaidFines(memberId);
+  }
+
+  @Get(':id/renewals')
+  @ApiOperation({
+    summary: 'Lịch sử gia hạn của một phiếu mượn',
+    description: 'Trả về audit trail từng lần gia hạn: hạn trả cũ, hạn trả mới, số ngày, người thực hiện.',
+  })
+  @ApiParam({ name: 'id', description: 'Mã ID của phiếu mượn', example: 'brw-01' })
+  @ApiOkResponse({ description: 'Danh sách lần gia hạn', type: [LoanRenewalHistory] })
+  @ApiNotFoundResponse({ description: 'Không tìm thấy phiếu mượn' })
+  getRenewalHistory(@Param('id') id: string): Promise<LoanRenewalHistory[]> {
+    return this.borrowingsService.getRenewalHistory(id);
+  }
+
   @Get(':id')
   @ApiOperation({
     summary: 'Lấy chi tiết một phiếu mượn sách',
@@ -99,7 +132,14 @@ export class BorrowingsController {
     type: Borrowing,
   })
   @ApiBadRequestResponse({
-    description: 'Độc giả không đủ điều kiện (thẻ hết hạn, sách hết hàng, vượt quá hạn mức)',
+    description:
+      'Độc giả không đủ điều kiện: thẻ không ACTIVE, thẻ hết hạn, đang có sách quá hạn, còn nợ tiền phạt, ' +
+      'vượt hạn mức mượn, hoặc sách đã hết bản khả dụng tại thời điểm nhận request',
+  })
+  @ApiConflictResponse({
+    description:
+      'Tranh chấp tồn kho: bản sách cuối cùng vừa bị độc giả khác mượn trong lúc giao dịch đang xử lý. ' +
+      'Toàn bộ giao dịch đã được rollback (không tạo phiếu, không trừ kho)',
   })
   @ApiNotFoundResponse({
     description: 'Không tìm thấy độc giả hoặc cuốn sách',
@@ -113,7 +153,10 @@ export class BorrowingsController {
   @ApiOperation({
     summary: 'Trả sách (Hoàn tất phiếu mượn)',
     description:
-      'Độc giả trả sách về thư viện, hệ thống tự động hoàn lại số lượng bản in vào kho, giảm số sách đang mượn của bạn đọc và tính toán tiền phạt nếu trễ hạn (5.000 VNĐ/ngày).',
+      'Hoàn sách về kho, giảm số sách đang giữ của độc giả và chốt tiền phạt = số ngày quá hạn × mức phạt mỗi ngày ' +
+      '(cấu hình LOAN_FINE_PER_DAY, mặc định 5.000 VNĐ/ngày/cuốn). Trạng thái chuyển RETURNED; ' +
+      'tiền phạt chỉ được đánh dấu đã thu khi truyền `finePaid: true`, ngược lại ghi nhận thành nợ. ' +
+      'Nếu sách đang có người đặt trước thì phiếu đặt trước đầu hàng đợi được chuyển sang READY.',
   })
   @ApiParam({
     name: 'id',
@@ -125,7 +168,10 @@ export class BorrowingsController {
     type: Borrowing,
   })
   @ApiBadRequestResponse({
-    description: 'Phiếu mượn đã hoàn tất trước đó',
+    description: 'Phiếu mượn đã hoàn tất trước đó (chống trả sách trùng, không cộng phạt lần hai)',
+  })
+  @ApiConflictResponse({
+    description: 'Phiếu mượn vừa được một giao dịch khác xử lý trả sách đồng thời',
   })
   @ApiNotFoundResponse({
     description: 'Không tìm thấy phiếu mượn để trả sách',
@@ -139,7 +185,10 @@ export class BorrowingsController {
   @ApiOperation({
     summary: 'Gia hạn thời gian mượn sách',
     description:
-      'Cho phép gia hạn thêm thời gian mượn (mặc định 7 ngày, tối đa 14 ngày). Yêu cầu: phiếu mượn chưa quá hạn và chưa vượt quá 2 lần gia hạn.',
+      'Gia hạn thêm thời gian mượn (mặc định LOAN_RENEW_DAYS = 7 ngày, tối đa LOAN_RENEW_MAX_DAYS = 14 ngày mỗi lần). ' +
+      'Điều kiện kiểm tra theo thứ tự: chưa trả sách -> chưa quá hạn -> chưa dùng hết số lần gia hạn ' +
+      '(LOAN_RENEW_MAX_COUNT, mặc định 1 lần) -> cuốn sách không có độc giả khác đang đặt trước. ' +
+      'Mỗi lần gia hạn được ghi vào lịch sử, xem tại GET /api/borrowings/:id/renewals.',
   })
   @ApiParam({
     name: 'id',
@@ -151,7 +200,11 @@ export class BorrowingsController {
     type: Borrowing,
   })
   @ApiBadRequestResponse({
-    description: 'Phiếu mượn đã quá hạn hoặc đã vượt quá 2 lần gia hạn tối đa',
+    description: 'Phiếu mượn đã trả sách, đã quá hạn, hoặc đã dùng hết số lần gia hạn cho phép',
+  })
+  @ApiConflictResponse({
+    description:
+      'Cuốn sách đang có độc giả khác đặt trước hợp lệ nên không được gia hạn, hoặc phiếu vừa được gia hạn bởi giao dịch khác',
   })
   @ApiNotFoundResponse({
     description: 'Không tìm thấy phiếu mượn để gia hạn',

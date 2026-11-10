@@ -11,11 +11,13 @@ export class ReturnBookDto {
   notes?: string;
 
   @ApiPropertyOptional({
-    description: 'Độc giả đã thanh toán tiền phạt quá hạn hay chưa (nếu có phát sinh tiền phạt)',
-    default: true,
-    example: true,
+    description:
+      'Độc giả có nộp tiền phạt ngay tại quầy hay không. Bỏ trống (mặc định false) nghĩa là khoản phạt được ghi nhận thành nợ, ' +
+      'phiếu vẫn chuyển sang RETURNED nhưng finePaid = false và phải thanh toán sau qua POST /api/borrowings/:id/pay-fine',
+    default: false,
+    example: false,
   })
   @IsOptional()
   @IsBoolean({ message: 'Trạng thái nộp phạt phải là kiểu boolean (true/false)' })
-  finePaid?: boolean = true;
+  finePaid?: boolean;
 }

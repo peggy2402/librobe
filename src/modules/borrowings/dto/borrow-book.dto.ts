@@ -19,17 +19,19 @@ export class BorrowBookDto {
   bookId!: string;
 
   @ApiPropertyOptional({
-    description: 'Thời hạn mượn sách (tính theo ngày, mặc định: 14 ngày, tối đa: 30 ngày)',
+    description:
+      'Thời hạn mượn sách (ngày). Bỏ trống sẽ dùng cấu hình LOAN_DEFAULT_DAYS (mặc định 14 ngày); ' +
+      'vượt quá LOAN_MAX_DAYS (mặc định 30 ngày) sẽ bị từ chối',
     default: 14,
     minimum: 1,
-    maximum: 30,
+    maximum: 365,
     example: 14,
   })
   @IsOptional()
   @IsInt({ message: 'Số ngày mượn phải là số nguyên' })
   @Min(1, { message: 'Thời hạn mượn tối thiểu là 1 ngày' })
-  @Max(30, { message: 'Thời hạn mượn tối đa là 30 ngày' })
-  durationDays?: number = 14;
+  @Max(365, { message: 'Thời hạn mượn yêu cầu không hợp lệ' })
+  durationDays?: number;
 
   @ApiPropertyOptional({
     description: 'Ghi chú thêm của thủ thư hoặc độc giả khi tạo phiếu mượn',

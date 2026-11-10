@@ -8,8 +8,10 @@ import { BooksModule } from './modules/books/books.module.js';
 import { BorrowingsModule } from './modules/borrowings/borrowings.module.js';
 import { BorrowingSlipsModule } from './modules/borrowing-slips/borrowing-slips.module.js';
 import { CategoriesModule } from './modules/categories/categories.module.js';
+import { LoanPolicyModule } from './modules/loan-policy/loan-policy.module.js';
 import { MembersModule } from './modules/members/members.module.js';
 import { PrismaModule } from './modules/prisma/prisma.module.js';
+import { ReservationsModule } from './modules/reservations/reservations.module.js';
 import { StatsModule } from './modules/stats/stats.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -28,11 +30,13 @@ const hasObserveKey = Boolean(process.env.OBSERVE_APP_KEY && process.env.OBSERVE
         ]
       : []),
     PrismaModule,
+    LoanPolicyModule,
     AuthModule,
     CategoriesModule,
     AuthorsModule,
     BooksModule,
     MembersModule,
+    ReservationsModule,
     BorrowingsModule,
     BorrowingSlipsModule,
     StatsModule,

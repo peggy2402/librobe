@@ -71,10 +71,22 @@ export class BorrowingSlipItemEntity {
   returnCondition?: ReturnCondition;
 
   @ApiProperty({
-    description: 'Tiền phạt hoặc bồi thường tính riêng cho dòng này (VNĐ)',
+    description: 'Tổng tiền phạt của dòng này = lateFee + compensationFee (VNĐ)',
     example: 0,
   })
   fineAmount!: number;
+
+  @ApiProperty({
+    description: 'Tiền phạt trễ hạn đã chốt cho dòng này = số ngày quá hạn × mức phạt/ngày × số lượng (VNĐ)',
+    example: 0,
+  })
+  lateFee!: number;
+
+  @ApiProperty({
+    description: 'Tiền bồi thường do mất sách, tách riêng khỏi phạt trễ hạn (VNĐ)',
+    example: 0,
+  })
+  compensationFee!: number;
 
   @ApiPropertyOptional({
     description: 'Ghi chú thêm',
@@ -176,10 +188,24 @@ export class BorrowingSlipEntity {
   totalFine!: number;
 
   @ApiProperty({
-    description: 'Trạng thái đã thanh toán tiền phạt hay chưa',
+    description:
+      'Trạng thái đã thanh toán tiền phạt. Độc lập với trạng thái chứng từ: phiếu có thể COMPLETED nhưng finePaid = false',
     example: false,
   })
   finePaid!: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Thời điểm thanh toán tiền phạt (chỉ có khi finePaid = true)',
+    example: '2026-11-20T09:15:00.000Z',
+  })
+  finePaidAt?: Date;
+
+  @ApiProperty({
+    description:
+      'Số lần phiếu đã được gia hạn (giới hạn theo cấu hình LOAN_RENEW_MAX_COUNT, mặc định 1 lần)',
+    example: 0,
+  })
+  renewCount!: number;
 
   @ApiProperty({
     description: 'Danh sách các dòng sách chi tiết trong phiếu (Master - Detail)',

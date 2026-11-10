@@ -58,6 +58,19 @@ enum ReturnCondition {
   LOST
 }
 
+/// Trạng thái phiếu đặt trước (giữ chỗ) sách.
+/// PENDING: đang chờ sách được trả về kho.
+/// READY: sách đã có sẵn và đang được giữ riêng cho độc giả cho tới hết expiresAt.
+/// FULFILLED: đã được chuyển thành phiếu mượn thực tế.
+/// CANCELLED: độc giả/thủ thư hủy. EXPIRED: hết thời gian giữ chỗ.
+enum ReservationStatus {
+  PENDING
+  READY
+  FULFILLED
+  CANCELLED
+  EXPIRED
+}
+
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
@@ -117,6 +130,7 @@ model Book {
   description        String
   borrowings         Borrowing[]
   borrowingSlipItems BorrowingSlipItem[]
+  reservations       Reservation[]
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
 
@@ -137,6 +151,7 @@ model Member {
   user                 User?
   borrowings           Borrowing[]
   borrowingSlips       BorrowingSlip[]
+  reservations         Reservation[]
   createdAt            DateTime        @default(now()) @map("created_at")
   updatedAt            DateTime        @updatedAt @map("updated_at")
 
@@ -156,11 +171,16 @@ model Borrowing {
   renewCount      Int             @default(0) @map("renew_count")
   fineAmount      Float           @default(0) @map("fine_amount")
   finePaid        Boolean         @default(false) @map("fine_paid")
+  /// Thời điểm độc giả nộp phạt — tách biệt hoàn toàn với returnDate (đã trả sách).
+  finePaidAt      DateTime?       @map("fine_paid_at")
   notes           String?
   status          BorrowingStatus @default(BORROWED)
+  renewals        LoanRenewal[]
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @updatedAt @map("updated_at")
 
+  @@index([memberId, status])
+  @@index([status, dueDate])
   @@map("borrowings")
 }
 
@@ -181,10 +201,17 @@ model BorrowingSlip {
   notes        String?
   totalFine    Float               @default(0) @map("total_fine")
   finePaid     Boolean             @default(false) @map("fine_paid")
+  /// Thời điểm thanh toán phạt — phân biệt với trạng thái COMPLETED (đã trả hết sách).
+  finePaidAt   DateTime?           @map("fine_paid_at")
+  /// Số lần phiếu đã được gia hạn (đối chiếu với LOAN_RENEW_MAX_COUNT).
+  renewCount   Int                 @default(0) @map("renew_count")
   items        BorrowingSlipItem[]
+  renewals     LoanRenewal[]
   createdAt    DateTime            @default(now()) @map("created_at")
   updatedAt    DateTime            @updatedAt @map("updated_at")
 
+  @@index([memberId, status])
+  @@index([status, dueDate])
   @@map("borrowing_slips")
 }
 
@@ -201,10 +228,62 @@ model BorrowingSlipItem {
   status           BorrowingItemStatus @default(PENDING)
   returnDate       DateTime?           @map("return_date")
   returnCondition  ReturnCondition?    @map("return_condition")
+  /// Tổng tiền phạt của dòng = lateFee + compensationFee (giữ nguyên để tương thích ngược).
   fineAmount       Float               @default(0) @map("fine_amount")
+  /// Tiền phạt trễ hạn đã chốt cho dòng này (số ngày quá hạn × mức phạt × số lượng).
+  lateFee          Float               @default(0) @map("late_fee")
+  /// Tiền bồi thường do mất/hỏng sách, tách riêng để không bị cộng trùng với phạt trễ.
+  compensationFee  Float               @default(0) @map("compensation_fee")
   notes            String?
   createdAt        DateTime            @default(now()) @map("created_at")
   updatedAt        DateTime            @updatedAt @map("updated_at")
 
+  @@index([slipId, status])
   @@map("borrowing_slip_items")
+}
+
+/// Phiếu đặt trước sách. Dùng cho chính sách "không gia hạn khi sách đang có người chờ".
+model Reservation {
+  id              String            @id @default(uuid())
+  reservationCode String            @unique @map("reservation_code")
+  memberId        String            @map("member_id")
+  member          Member            @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  bookId          String            @map("book_id")
+  book            Book              @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  status          ReservationStatus @default(PENDING)
+  reservedAt      DateTime          @default(now()) @map("reserved_at")
+  /// Hạn cuối độc giả phải đến nhận sách khi phiếu chuyển sang READY.
+  expiresAt       DateTime?         @map("expires_at")
+  readyAt         DateTime?         @map("ready_at")
+  fulfilledAt     DateTime?         @map("fulfilled_at")
+  cancelledAt     DateTime?         @map("cancelled_at")
+  cancelReason    String?           @map("cancel_reason")
+  notes           String?
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  @@index([bookId, status])
+  @@index([memberId, status])
+  @@map("reservations")
+}
+
+/// Lịch sử gia hạn (audit trail) cho cả phiếu mượn lẻ và phiếu mượn ERP.
+model LoanRenewal {
+  id              String         @id @default(uuid())
+  borrowingId     String?        @map("borrowing_id")
+  borrowing       Borrowing?     @relation(fields: [borrowingId], references: [id], onDelete: Cascade)
+  slipId          String?        @map("slip_id")
+  slip            BorrowingSlip? @relation(fields: [slipId], references: [id], onDelete: Cascade)
+  /// Lần gia hạn thứ mấy của lượt mượn (1, 2, ...).
+  sequence        Int
+  previousDueDate DateTime       @map("previous_due_date")
+  newDueDate      DateTime       @map("new_due_date")
+  extraDays       Int            @map("extra_days")
+  renewedAt       DateTime       @default(now()) @map("renewed_at")
+  renewedBy       String?        @map("renewed_by")
+  reason          String?
+
+  @@index([borrowingId])
+  @@index([slipId])
+  @@map("loan_renewals")
 }

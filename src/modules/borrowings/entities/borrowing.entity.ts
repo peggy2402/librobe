@@ -57,22 +57,31 @@ export class Borrowing {
   returnDate?: Date;
 
   @ApiProperty({
-    description: 'Số lần đã gia hạn mượn (tối đa 2 lần)',
+    description:
+      'Số lần đã gia hạn mượn (giới hạn theo cấu hình LOAN_RENEW_MAX_COUNT, mặc định 1 lần)',
     example: 0,
   })
   renewCount!: number;
 
   @ApiProperty({
-    description: 'Số tiền phạt quá hạn phát sinh (VNĐ) (5.000 VNĐ / ngày trễ)',
+    description:
+      'Số tiền phạt quá hạn phát sinh (VNĐ) = số ngày quá hạn × mức phạt mỗi ngày (cấu hình LOAN_FINE_PER_DAY, mặc định 5.000 VNĐ)',
     example: 0,
   })
   fineAmount!: number;
 
   @ApiProperty({
-    description: 'Trạng thái nộp phạt đã hoàn tất hay chưa',
+    description:
+      'Trạng thái nộp phạt. Độc lập với việc đã trả sách: một phiếu có thể RETURNED nhưng finePaid = false',
     example: false,
   })
   finePaid!: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Thời điểm độc giả nộp phạt (chỉ có khi finePaid = true)',
+    example: '2026-10-20T09:15:00.000Z',
+  })
+  finePaidAt?: Date;
 
   @ApiPropertyOptional({
     description: 'Ghi chú thêm về tình trạng sách lúc mượn/trả',

@@ -4,26 +4,31 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  BorrowingItemStatus,
-  BorrowingSlipStatus,
-  MemberStatus,
-  ReturnCondition,
-} from '@prisma/client';
+import { BorrowingItemStatus, BorrowingSlipStatus, ReturnCondition } from '@prisma/client';
 import { PaginatedResponseDto } from '../../common/dto/pagination.dto.js';
 import { BookStatus } from '../../common/enums/book-status.enum.js';
+import { BookStockService, PrismaTx } from '../loan-policy/book-stock.service.js';
+import { LoanEligibilityService } from '../loan-policy/loan-eligibility.service.js';
+import { LoanPolicyService } from '../loan-policy/loan-policy.service.js';
+import { LoanRenewalHistory } from '../borrowings/entities/loan-renewal.entity.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ReservationsService } from '../reservations/reservations.service.js';
 import { CreateBorrowingSlipDto } from './dto/create-borrowing-slip.dto.js';
 import { FilterBorrowingSlipDto } from './dto/filter-borrowing-slip.dto.js';
 import { CancelBorrowingSlipDto, RejectBorrowingSlipDto } from './dto/reject-borrowing-slip.dto.js';
+import { RenewSlipDto } from './dto/renew-slip.dto.js';
 import { ReturnSlipItemsDto } from './dto/return-slip-items.dto.js';
 import { BorrowingSlipEntity, BorrowingSlipItemEntity } from './entities/borrowing-slip.entity.js';
 
 @Injectable()
 export class BorrowingSlipsService {
-  private readonly FINE_PER_DAY = 5000;
-
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly policy: LoanPolicyService,
+    private readonly eligibility: LoanEligibilityService,
+    private readonly stock: BookStockService,
+    private readonly reservations: ReservationsService,
+  ) {}
 
   async findAll(filters: FilterBorrowingSlipDto): Promise<PaginatedResponseDto<BorrowingSlipEntity>> {
     const page = filters.page || 1;
@@ -102,44 +107,22 @@ export class BorrowingSlipsService {
     return this.mapSlipToEntity(slip);
   }
 
+  /**
+   * Tình huống 1 & 2: lập phiếu mượn nhiều cuốn trong một chứng từ.
+   *
+   * Điều kiện của độc giả (trạng thái thẻ, hạn thẻ, sách quá hạn, nợ phạt,
+   * hạn mức mượn) được uỷ quyền cho `LoanEligibilityService` để hai luồng mượn
+   * sách dùng chung một bộ luật thay vì mỗi nơi tự kiểm tra một kiểu.
+   */
   async create(dto: CreateBorrowingSlipDto): Promise<BorrowingSlipEntity> {
     const now = new Date();
 
-    // 1. Kiểm tra độc giả
-    const member = await this.prisma.member.findUnique({
-      where: { id: dto.memberId },
-      include: {
-        borrowings: true,
-        borrowingSlips: {
-          include: { items: true },
-        },
-      },
-    });
-
-    if (!member) {
-      throw new NotFoundException(`Không tìm thấy độc giả với ID "${dto.memberId}"`);
-    }
-
-    if (member.status !== MemberStatus.ACTIVE) {
+    if (
+      dto.expectedReturnDays !== undefined &&
+      dto.expectedReturnDays > this.policy.maxLoanDays
+    ) {
       throw new BadRequestException(
-        `Thẻ độc giả đang ở trạng thái "${member.status}". Không đủ điều kiện lập phiếu mượn`,
-      );
-    }
-
-    if (new Date(member.membershipExpiry) < now) {
-      throw new BadRequestException('Thẻ thư viện của độc giả đã hết hạn. Vui lòng gia hạn thẻ');
-    }
-
-    // Kiểm tra sách quá hạn
-    const hasOldOverdue = member.borrowings.some(
-      (b) => b.status === 'OVERDUE' || (b.status === 'BORROWED' && new Date(b.dueDate) < now),
-    );
-    const hasSlipOverdue = member.borrowingSlips.some(
-      (s) => ['BORROWED', 'PARTIAL_RETURNED'].includes(s.status as any) && new Date(s.dueDate) < now,
-    );
-    if (hasOldOverdue || hasSlipOverdue) {
-      throw new BadRequestException(
-        'Độc giả hiện có sách mượn đã quá hạn chưa hoàn trả. Cần trả sách trước khi tạo phiếu mới',
+        `Thời hạn mượn tối đa theo chính sách thư viện là ${this.policy.maxLoanDays} ngày (yêu cầu ${dto.expectedReturnDays} ngày)`,
       );
     }
 
@@ -157,148 +140,145 @@ export class BorrowingSlipsService {
 
     const requestedTotalQuantity = consolidatedItems.reduce((sum, item) => sum + item.quantity, 0);
 
-    // Tính số sách đang mượn
-    const activeOldCount = member.borrowings.filter((b) =>
-      ['BORROWED', 'OVERDUE'].includes(b.status as any),
-    ).length;
-    const activeSlipsCount = member.borrowingSlips
-      .filter((s) => ['BORROWED', 'PARTIAL_RETURNED'].includes(s.status as any))
-      .reduce((sum, s) => {
-        const remaining = s.items
-          .filter((it) => ['PENDING', 'BORROWING'].includes(it.status as any))
-          .reduce((acc, it) => acc + (it.quantity - it.returnedQuantity - it.lostQuantity), 0);
-        return sum + remaining;
-      }, 0);
+    const createdSlip = await this.prisma.$transaction(async (tx) => {
+      // 1. Điều kiện của độc giả + hạn mức mượn cho TỔNG số cuốn yêu cầu
+      await this.eligibility.assertCanBorrow(dto.memberId, requestedTotalQuantity, tx, now);
 
-    const currentBorrowedCount = activeOldCount + activeSlipsCount;
-    const remainingLimit = Math.max(0, member.maxBorrowLimit - currentBorrowedCount);
+      // 2. Kiểm tra tồn kho của từng cuốn sách
+      const bookIds = consolidatedItems.map((i) => i.bookId);
+      const books = await tx.book.findMany({ where: { id: { in: bookIds } } });
 
-    if (requestedTotalQuantity > remainingLimit) {
-      throw new BadRequestException(
-        `Độc giả chỉ còn được phép mượn thêm tối đa ${remainingLimit} cuốn sách (yêu cầu mượn ${requestedTotalQuantity} cuốn)`,
-      );
-    }
-
-    // 2. Kiểm tra tồn kho của từng cuốn sách
-    const bookIds = consolidatedItems.map((i) => i.bookId);
-    const books = await this.prisma.book.findMany({
-      where: { id: { in: bookIds } },
-    });
-
-    if (books.length < bookIds.length || !bookIds.every((id) => books.some((b) => b.id === id))) {
-      throw new NotFoundException('Một hoặc nhiều cuốn sách trong danh sách yêu cầu không tồn tại trong thư viện');
-    }
-
-    for (const item of consolidatedItems) {
-      const book = books.find((b) => b.id === item.bookId)!;
-      if (book.status === BookStatus.DISCONTINUED) {
-        throw new BadRequestException(`Cuốn sách "${book.title}" đã ngừng lưu hành`);
-      }
-      if (book.copiesAvailable < item.quantity) {
-        throw new ConflictException(
-          `Sách "${book.title}" chỉ còn ${book.copiesAvailable} cuốn khả dụng trong kho, không đủ số lượng yêu cầu (${item.quantity})`,
+      if (books.length < bookIds.length || !bookIds.every((id) => books.some((b) => b.id === id))) {
+        throw new NotFoundException(
+          'Một hoặc nhiều cuốn sách trong danh sách yêu cầu không tồn tại trong thư viện',
         );
       }
-    }
 
-    // 3. Tạo phiếu mượn (Master - Detail)
-    const durationDays = dto.expectedReturnDays ?? 14;
-    const dueDate = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
-    const count = await this.prisma.borrowingSlip.count();
-    const slipNumber = `SLIP-${now.getFullYear()}-${(count + 1).toString().padStart(4, '0')}`;
+      for (const item of consolidatedItems) {
+        const book = books.find((b) => b.id === item.bookId)!;
+        if (book.status === BookStatus.DISCONTINUED) {
+          throw new BadRequestException(`Cuốn sách "${book.title}" đã ngừng lưu hành`);
+        }
+        if (book.copiesAvailable < item.quantity) {
+          throw new ConflictException(
+            `Sách "${book.title}" chỉ còn ${book.copiesAvailable} cuốn khả dụng trong kho, không đủ số lượng yêu cầu (${item.quantity})`,
+          );
+        }
+      }
 
-    const createdSlip = await this.prisma.borrowingSlip.create({
-      data: {
-        slipNumber,
-        memberId: member.id,
-        status: BorrowingSlipStatus.PENDING_APPROVAL,
-        dueDate,
-        notes: dto.notes?.trim() || null,
-        items: {
-          create: consolidatedItems.map((item) => {
-            const book = books.find((b) => b.id === item.bookId)!;
-            return {
-              bookId: item.bookId,
-              quantity: item.quantity,
-              bookPrice: book.price ?? 150000,
-              status: BorrowingItemStatus.PENDING,
-            };
-          }),
+      // 3. Tạo phiếu mượn (Master - Detail). Chưa trừ kho: tồn kho chỉ bị trừ
+      //    khi chứng từ được phê duyệt ở bước `approve`.
+      const dueDate = this.policy.resolveDueDate(now, dto.expectedReturnDays);
+      const slipNumber = await this.nextSlipNumber(tx, now);
+
+      return tx.borrowingSlip.create({
+        data: {
+          slipNumber,
+          memberId: dto.memberId,
+          status: BorrowingSlipStatus.PENDING_APPROVAL,
+          dueDate,
+          notes: dto.notes?.trim() || null,
+          items: {
+            create: consolidatedItems.map((item) => {
+              const book = books.find((b) => b.id === item.bookId)!;
+              return {
+                bookId: item.bookId,
+                quantity: item.quantity,
+                bookPrice: book.price ?? 150000,
+                status: BorrowingItemStatus.PENDING,
+              };
+            }),
+          },
         },
-      },
-      include: {
-        member: true,
-        items: {
-          include: { book: true },
+        include: {
+          member: true,
+          items: { include: { book: true } },
         },
-      },
+      });
     });
 
     return this.mapSlipToEntity(createdSlip);
   }
 
+  /**
+   * Tình huống 3: phê duyệt chứng từ và xuất kho.
+   *
+   * Code cũ đọc tồn kho bằng `findUnique` NGOÀI transaction rồi mới trừ kho,
+   * nên hai phiếu cùng duyệt bản sách cuối cùng đều vượt qua vòng kiểm tra và
+   * `copies_available` tụt xuống số âm. Ở đây:
+   *  - chốt trạng thái phiếu bằng atomic update có điều kiện
+   *    `status = PENDING_APPROVAL` -> chống double-click / duyệt trùng;
+   *  - trừ kho bằng atomic conditional update -> chỉ một phiếu giành được bản
+   *    sách cuối cùng, phiếu còn lại nhận 409 và rollback toàn bộ.
+   */
   async approve(id: string, approvedBy = 'Librarian'): Promise<BorrowingSlipEntity> {
-    const slip = await this.findOne(id);
     const now = new Date();
 
-    if (slip.status !== BorrowingSlipStatus.PENDING_APPROVAL) {
-      throw new ConflictException(
-        `DOCUMENT_ALREADY_PROCESSED: Phiếu mượn này đang ở trạng thái "${slip.status}", không thể phê duyệt`,
-      );
-    }
+    const updatedSlip = await this.prisma.$transaction(async (tx) => {
+      const slip = await tx.borrowingSlip.findUnique({
+        where: { id },
+        include: { items: { include: { book: { select: { title: true } } } } },
+      });
 
-    // Khóa tồn kho (Stock Lock & Concurrency Check)
-    for (const item of slip.items) {
-      const book = await this.prisma.book.findUnique({ where: { id: item.bookId } });
-      if (!book || book.copiesAvailable < item.quantity) {
+      if (!slip) {
+        throw new NotFoundException(`Không tìm thấy phiếu mượn với ID "${id}"`);
+      }
+
+      if (slip.status !== BorrowingSlipStatus.PENDING_APPROVAL) {
         throw new ConflictException(
-          `OUT_OF_STOCK_RACE_CONDITION: Sách "${item.bookTitle}" không còn đủ số lượng khả dụng trong kho (${book?.copiesAvailable ?? 0} < ${item.quantity})`,
+          `DOCUMENT_ALREADY_PROCESSED: Phiếu mượn này đang ở trạng thái "${slip.status}", không thể phê duyệt`,
         );
       }
-    }
 
-    // Thực hiện trừ kho và chuyển trạng thái trong một Transaction
-    const totalQty = slip.items.reduce((sum, it) => sum + it.quantity, 0);
-
-    const [updatedSlip] = await this.prisma.$transaction([
-      this.prisma.borrowingSlip.update({
-        where: { id },
+      // Chốt quyền xử lý chứng từ: chỉ một request đi tiếp được.
+      const claimed = await tx.borrowingSlip.updateMany({
+        where: { id, status: BorrowingSlipStatus.PENDING_APPROVAL },
         data: {
           status: BorrowingSlipStatus.BORROWED,
           borrowDate: now,
           approvedAt: now,
           approvedBy,
-          items: {
-            updateMany: {
-              where: { slipId: id },
-              data: { status: BorrowingItemStatus.BORROWING },
-            },
-          },
         },
-        include: {
-          member: true,
-          items: {
-            include: { book: true },
-          },
-        },
-      }),
-      // Trừ kho từng cuốn sách
-      ...slip.items.map((it) =>
-        this.prisma.book.update({
-          where: { id: it.bookId },
-          data: {
-            copiesAvailable: { decrement: it.quantity },
-          },
-        }),
-      ),
-      // Tăng số sách đang mượn của độc giả
-      this.prisma.member.update({
+      });
+
+      if (claimed.count === 0) {
+        throw new ConflictException(
+          'DOCUMENT_ALREADY_PROCESSED: Phiếu mượn vừa được phê duyệt bởi một giao dịch khác',
+        );
+      }
+
+      // Trừ kho atomic cho từng dòng sách. Nếu bất kỳ dòng nào thiếu hàng,
+      // exception sẽ rollback cả trạng thái phiếu vừa chốt ở trên.
+      for (const item of slip.items) {
+        await this.stock.decrementAvailable(
+          tx,
+          item.bookId,
+          item.quantity,
+          item.book?.title ?? item.bookId,
+        );
+      }
+
+      await tx.borrowingSlipItem.updateMany({
+        where: { slipId: id, status: BorrowingItemStatus.PENDING },
+        data: { status: BorrowingItemStatus.BORROWING },
+      });
+
+      const totalQty = slip.items.reduce((sum, it) => sum + it.quantity, 0);
+      await tx.member.update({
         where: { id: slip.memberId },
-        data: {
-          currentBorrowedCount: { increment: totalQty },
-        },
-      }),
-    ]);
+        data: { currentBorrowedCount: { increment: totalQty } },
+      });
+
+      // Đóng các phiếu đặt trước của chính độc giả này trên các cuốn vừa xuất kho.
+      for (const item of slip.items) {
+        await this.reservations.fulfillForBorrow(tx, slip.memberId, item.bookId, now);
+      }
+
+      return tx.borrowingSlip.findUniqueOrThrow({
+        where: { id },
+        include: { member: true, items: { include: { book: true } } },
+      });
+    });
 
     return this.mapSlipToEntity(updatedSlip);
   }
@@ -336,218 +316,479 @@ export class BorrowingSlipsService {
   }
 
   async cancel(id: string, dto: CancelBorrowingSlipDto): Promise<BorrowingSlipEntity> {
-    const slip = await this.findOne(id);
     const now = new Date();
+    const closedStatuses: string[] = [
+      BorrowingSlipStatus.COMPLETED,
+      BorrowingSlipStatus.REJECTED,
+      BorrowingSlipStatus.CANCELLED,
+    ];
 
-    if (['COMPLETED', 'REJECTED', 'CANCELLED'].includes(slip.status)) {
-      throw new ConflictException(
-        `DOCUMENT_ALREADY_PROCESSED: Không thể hủy phiếu mượn đã ở trạng thái "${slip.status}"`,
-      );
-    }
+    const cancelled = await this.prisma.$transaction(async (tx) => {
+      const slip = await tx.borrowingSlip.findUnique({
+        where: { id },
+        include: { items: true },
+      });
 
-    // Nếu đã xuất kho mượn (BORROWED hoặc PARTIAL_RETURNED), cần hoàn lại số sách chưa trả vào kho
-    if (['BORROWED', 'PARTIAL_RETURNED'].includes(slip.status)) {
-      const activeItems = slip.items.filter(
-        (it) => it.status === BorrowingItemStatus.PENDING || it.status === BorrowingItemStatus.BORROWING,
-      );
-      const remainingTotalQty = activeItems.reduce(
-        (sum, it) => sum + (it.quantity - it.returnedQuantity - it.lostQuantity),
-        0,
-      );
+      if (!slip) {
+        throw new NotFoundException(`Không tìm thấy phiếu mượn với ID "${id}"`);
+      }
 
-      const [cancelled] = await this.prisma.$transaction([
-        this.prisma.borrowingSlip.update({
-          where: { id },
-          data: {
-            status: BorrowingSlipStatus.CANCELLED,
-            cancelledAt: now,
-            cancelReason: dto.reason.trim(),
-            items: {
-              updateMany: {
-                where: {
-                  slipId: id,
-                  status: { in: [BorrowingItemStatus.PENDING, BorrowingItemStatus.BORROWING] },
-                },
-                data: { status: BorrowingItemStatus.CANCELLED },
-              },
-            },
-          },
-          include: { member: true, items: { include: { book: true } } },
-        }),
-        ...activeItems.map((it) =>
-          this.prisma.book.update({
-            where: { id: it.bookId },
-            data: {
-              copiesAvailable: { increment: it.quantity - it.returnedQuantity - it.lostQuantity },
-            },
-          }),
-        ),
-        this.prisma.member.update({
-          where: { id: slip.memberId },
-          data: {
-            currentBorrowedCount: { decrement: remainingTotalQty },
-          },
-        }),
-      ]);
+      if (closedStatuses.includes(slip.status)) {
+        throw new ConflictException(
+          `DOCUMENT_ALREADY_PROCESSED: Không thể hủy phiếu mượn đã ở trạng thái "${slip.status}"`,
+        );
+      }
 
-      return this.mapSlipToEntity(cancelled);
-    }
+      const wasIssued = (
+        [BorrowingSlipStatus.BORROWED, BorrowingSlipStatus.PARTIAL_RETURNED] as string[]
+      ).includes(slip.status);
 
-    // Nếu đang ở PENDING_APPROVAL thì chỉ đổi trạng thái
-    const updated = await this.prisma.borrowingSlip.update({
-      where: { id },
-      data: {
-        status: BorrowingSlipStatus.CANCELLED,
-        cancelledAt: now,
-        cancelReason: dto.reason.trim(),
-        items: {
-          updateMany: {
-            where: { slipId: id },
-            data: { status: BorrowingItemStatus.CANCELLED },
-          },
+      const claimed = await tx.borrowingSlip.updateMany({
+        where: { id, status: slip.status },
+        data: {
+          status: BorrowingSlipStatus.CANCELLED,
+          cancelledAt: now,
+          cancelReason: dto.reason.trim(),
         },
-      },
-      include: {
-        member: true,
-        items: { include: { book: true } },
-      },
+      });
+
+      if (claimed.count === 0) {
+        throw new ConflictException(
+          'DOCUMENT_ALREADY_PROCESSED: Phiếu mượn vừa được xử lý bởi một giao dịch khác',
+        );
+      }
+
+      const activeItems = slip.items.filter(
+        (it) =>
+          it.status === BorrowingItemStatus.PENDING || it.status === BorrowingItemStatus.BORROWING,
+      );
+
+      await tx.borrowingSlipItem.updateMany({
+        where: {
+          slipId: id,
+          status: { in: [BorrowingItemStatus.PENDING, BorrowingItemStatus.BORROWING] },
+        },
+        data: { status: BorrowingItemStatus.CANCELLED },
+      });
+
+      // Chỉ hoàn kho khi chứng từ đã thực sự xuất kho trước đó.
+      if (wasIssued) {
+        let remainingTotalQty = 0;
+        for (const item of activeItems) {
+          const remaining = Math.max(
+            0,
+            item.quantity - item.returnedQuantity - item.lostQuantity,
+          );
+          if (remaining > 0) {
+            await this.stock.incrementAvailable(tx, item.bookId, remaining);
+            remainingTotalQty += remaining;
+          }
+        }
+
+        if (remainingTotalQty > 0) {
+          await tx.member.update({
+            where: { id: slip.memberId },
+            data: { currentBorrowedCount: { decrement: remainingTotalQty } },
+          });
+        }
+      }
+
+      return tx.borrowingSlip.findUniqueOrThrow({
+        where: { id },
+        include: { member: true, items: { include: { book: true } } },
+      });
     });
 
-    return this.mapSlipToEntity(updated);
+    return this.mapSlipToEntity(cancelled);
   }
 
+  /**
+   * Tình huống 4: trả sách từng phần, tính phạt quá hạn và bồi thường mất sách.
+   *
+   * Nguyên tắc chống tính phạt trùng:
+   *  - tiền phạt chỉ tính trên SỐ LƯỢNG ĐƯỢC XỬ LÝ trong đợt này
+   *    (`processQty`), không tính lại trên số đã trả ở các đợt trước;
+   *  - mỗi dòng chi tiết bị chặn nếu phần còn lại đã bằng 0;
+   *  - mọi lệnh ghi nằm trong cùng một interactive transaction và dòng chi tiết
+   *    được chốt bằng atomic update theo đúng `returnedQuantity`/`lostQuantity`
+   *    đã đọc, nên hai request trả cùng một dòng sẽ chỉ có một request thắng.
+   *
+   * Tiền phạt trễ hạn của một dòng = số ngày quá hạn × mức phạt mỗi ngày × số lượng xử lý.
+   */
   async returnItems(id: string, dto: ReturnSlipItemsDto): Promise<BorrowingSlipEntity> {
-    const slip = await this.findOne(id);
     const now = new Date();
+    const returnableStatuses: string[] = [
+      BorrowingSlipStatus.BORROWED,
+      BorrowingSlipStatus.PARTIAL_RETURNED,
+    ];
 
-    if (!['BORROWED', 'PARTIAL_RETURNED'].includes(slip.status)) {
-      throw new BadRequestException(
-        `Chỉ có thể hoàn trả các phiếu mượn đang ở trạng thái BORROWED hoặc PARTIAL_RETURNED (hiện tại: ${slip.status})`,
-      );
-    }
+    const updatedSlip = await this.prisma.$transaction(async (tx) => {
+      const slip = await tx.borrowingSlip.findUnique({
+        where: { id },
+        include: { items: { include: { book: { select: { title: true } } } } },
+      });
 
-    let batchFine = 0;
-    let totalReturnedQty = 0;
-    const itemUpdates: any[] = [];
-    const bookStockUpdates: any[] = [];
-
-    // Tính quá hạn nếu có
-    const isOverdue = now > new Date(slip.dueDate);
-    const daysLate = isOverdue
-      ? Math.ceil((now.getTime() - new Date(slip.dueDate).getTime()) / (1000 * 60 * 60 * 24))
-      : 0;
-
-    for (const reqItem of dto.items) {
-      const item = slip.items.find((it) => it.id === reqItem.itemId);
-      if (!item) {
-        throw new NotFoundException(`Không tìm thấy dòng chi tiết sách với ID "${reqItem.itemId}" trong phiếu này`);
+      if (!slip) {
+        throw new NotFoundException(`Không tìm thấy phiếu mượn với ID "${id}"`);
       }
 
-      const remainingInItem = item.quantity - item.returnedQuantity - item.lostQuantity;
-      if (remainingInItem <= 0) {
-        throw new BadRequestException(`Sách "${item.bookTitle}" đã được hoàn tất trước đó`);
+      if (!returnableStatuses.includes(slip.status)) {
+        throw new BadRequestException(
+          `Chỉ có thể hoàn trả các phiếu mượn đang ở trạng thái BORROWED hoặc PARTIAL_RETURNED (hiện tại: ${slip.status})`,
+        );
       }
 
-      const processQty = Math.min(reqItem.quantity ?? 1, remainingInItem);
-      totalReturnedQty += processQty;
+      // Số ngày quá hạn tính một lần cho cả phiếu, theo mốc đầu ngày.
+      const daysLate = this.policy.countOverdueDays(slip.dueDate, now);
 
-      let itemFine = 0;
-      if (daysLate > 0) {
-        itemFine += daysLate * this.FINE_PER_DAY * processQty;
-      }
+      let batchLateFee = 0;
+      let batchCompensation = 0;
+      let totalProcessedQty = 0;
+      const processedMap = new Map<string, number>();
 
-      if (reqItem.returnCondition === ReturnCondition.LOST) {
-        itemFine += item.bookPrice * processQty;
-      }
+      for (const reqItem of dto.items) {
+        const item = slip.items.find((it) => it.id === reqItem.itemId);
+        if (!item) {
+          throw new NotFoundException(
+            `Không tìm thấy dòng chi tiết sách với ID "${reqItem.itemId}" trong phiếu này`,
+          );
+        }
 
-      batchFine += itemFine;
+        if (processedMap.has(item.id)) {
+          throw new BadRequestException(
+            `Dòng chi tiết "${item.id}" bị khai báo trùng trong cùng một yêu cầu trả sách`,
+          );
+        }
 
-      const newReturned =
-        reqItem.returnCondition === ReturnCondition.GOOD
-          ? item.returnedQuantity + processQty
-          : item.returnedQuantity;
-      const newLost =
-        reqItem.returnCondition === ReturnCondition.LOST
-          ? item.lostQuantity + processQty
-          : item.lostQuantity;
+        const bookTitle = item.book?.title ?? item.bookId;
+        const remainingInItem = item.quantity - item.returnedQuantity - item.lostQuantity;
+        if (remainingInItem <= 0) {
+          throw new BadRequestException(`Sách "${bookTitle}" đã được hoàn tất trước đó`);
+        }
 
-      const isItemFullyProcessed = newReturned + newLost >= item.quantity;
-      const nextItemStatus = isItemFullyProcessed
-        ? reqItem.returnCondition === ReturnCondition.LOST
-          ? BorrowingItemStatus.LOST
-          : BorrowingItemStatus.RETURNED
-        : BorrowingItemStatus.BORROWING;
+        const requestedQty = reqItem.quantity ?? 1;
+        if (requestedQty > remainingInItem) {
+          throw new BadRequestException(
+            `Sách "${bookTitle}" chỉ còn ${remainingInItem} cuốn chưa hoàn tất, không thể xử lý ${requestedQty} cuốn`,
+          );
+        }
 
-      itemUpdates.push(
-        this.prisma.borrowingSlipItem.update({
-          where: { id: item.id },
+        const processQty = requestedQty;
+        processedMap.set(item.id, processQty);
+        totalProcessedQty += processQty;
+
+        const itemLateFee = daysLate * this.policy.finePerDayPerBook * processQty;
+        const itemCompensation =
+          reqItem.returnCondition === ReturnCondition.LOST ? item.bookPrice * processQty : 0;
+
+        batchLateFee += itemLateFee;
+        batchCompensation += itemCompensation;
+
+        const newReturned =
+          reqItem.returnCondition === ReturnCondition.LOST
+            ? item.returnedQuantity
+            : item.returnedQuantity + processQty;
+        const newLost =
+          reqItem.returnCondition === ReturnCondition.LOST
+            ? item.lostQuantity + processQty
+            : item.lostQuantity;
+
+        const isItemFullyProcessed = newReturned + newLost >= item.quantity;
+        const nextItemStatus = isItemFullyProcessed
+          ? reqItem.returnCondition === ReturnCondition.LOST
+            ? BorrowingItemStatus.LOST
+            : BorrowingItemStatus.RETURNED
+          : BorrowingItemStatus.BORROWING;
+
+        // Chốt dòng chi tiết dựa trên đúng số lượng đã đọc -> chống xử lý trùng.
+        const claimedItem = await tx.borrowingSlipItem.updateMany({
+          where: {
+            id: item.id,
+            returnedQuantity: item.returnedQuantity,
+            lostQuantity: item.lostQuantity,
+          },
           data: {
             returnedQuantity: newReturned,
             lostQuantity: newLost,
             status: nextItemStatus,
             returnDate: now,
             returnCondition: reqItem.returnCondition,
-            fineAmount: item.fineAmount + itemFine,
+            lateFee: item.lateFee + itemLateFee,
+            compensationFee: item.compensationFee + itemCompensation,
+            fineAmount: item.fineAmount + itemLateFee + itemCompensation,
             notes: reqItem.notes ? reqItem.notes.trim() : item.notes,
           },
-        }),
-      );
+        });
 
-      // Nếu sách trả nguyên vẹn thì hoàn lại kho
-      if (reqItem.returnCondition === ReturnCondition.GOOD) {
-        bookStockUpdates.push(
-          this.prisma.book.update({
+        if (claimedItem.count === 0) {
+          throw new ConflictException(
+            `Sách "${bookTitle}" vừa được xử lý trả bởi một giao dịch khác. Vui lòng tải lại phiếu mượn`,
+          );
+        }
+
+        // Sách mất thì không hoàn kho. Sách hỏng vẫn thuộc về thư viện nhưng
+        // không còn cho mượn được, nên cũng không cộng lại tồn kho khả dụng.
+        if (reqItem.returnCondition === ReturnCondition.GOOD) {
+          await this.stock.incrementAvailable(tx, item.bookId, processQty);
+          const book = await tx.book.findUnique({
             where: { id: item.bookId },
-            data: {
-              copiesAvailable: { increment: processQty },
-            },
-          }),
-        );
+            select: { copiesAvailable: true },
+          });
+          await this.reservations.promoteQueueAfterReturn(
+            tx,
+            item.bookId,
+            book?.copiesAvailable ?? 0,
+            now,
+          );
+        }
       }
-    }
 
-    // Kiểm tra xem sau đợt trả này toàn bộ phiếu đã xong chưa
-    const allItemsResolved = slip.items.every((it) => {
-      const match = dto.items.find((req) => req.itemId === it.id);
-      if (match) {
-        const remaining = it.quantity - it.returnedQuantity - it.lostQuantity;
-        const processed = Math.min(match.quantity ?? 1, remaining);
+      // Phiếu hoàn tất khi mọi dòng đã được xử lý hết số lượng.
+      const allItemsResolved = slip.items.every((it) => {
+        const processed = processedMap.get(it.id) ?? 0;
         return it.returnedQuantity + it.lostQuantity + processed >= it.quantity;
-      }
-      return it.returnedQuantity + it.lostQuantity >= it.quantity;
-    });
+      });
 
-    const nextSlipStatus = allItemsResolved
-      ? BorrowingSlipStatus.COMPLETED
-      : BorrowingSlipStatus.PARTIAL_RETURNED;
+      const batchFine = batchLateFee + batchCompensation;
+      const newTotalFine = slip.totalFine + batchFine;
+      const paidNow = dto.isPaidNow ?? false;
+      // Chỉ coi là đã thanh toán khi không còn khoản phạt nào chưa thu.
+      const fineSettled = newTotalFine <= 0 ? true : slip.finePaid && batchFine === 0 ? true : paidNow;
 
-    const [updatedSlip] = await this.prisma.$transaction([
-      this.prisma.borrowingSlip.update({
+      await tx.borrowingSlip.update({
         where: { id },
         data: {
-          status: nextSlipStatus,
-          totalFine: slip.totalFine + batchFine,
-          finePaid: dto.isPaidNow ?? true,
+          status: allItemsResolved
+            ? BorrowingSlipStatus.COMPLETED
+            : BorrowingSlipStatus.PARTIAL_RETURNED,
+          totalFine: newTotalFine,
+          finePaid: fineSettled,
+          finePaidAt: fineSettled && newTotalFine > 0 ? now : null,
           notes: dto.notes
             ? `${slip.notes ? slip.notes + ' | ' : ''}Trả sách ${now.toLocaleDateString('vi-VN')}: ${dto.notes.trim()}`
             : slip.notes,
         },
-        include: {
-          member: true,
-          items: { include: { book: true } },
-        },
-      }),
-      ...itemUpdates,
-      ...bookStockUpdates,
-      this.prisma.member.update({
-        where: { id: slip.memberId },
-        data: {
-          currentBorrowedCount: { decrement: totalReturnedQty },
-        },
-      }),
-    ]);
+      });
+
+      if (totalProcessedQty > 0) {
+        await tx.member.update({
+          where: { id: slip.memberId },
+          data: { currentBorrowedCount: { decrement: totalProcessedQty } },
+        });
+      }
+
+      return tx.borrowingSlip.findUniqueOrThrow({
+        where: { id },
+        include: { member: true, items: { include: { book: true } } },
+      });
+    });
 
     return this.mapSlipToEntity(updatedSlip);
+  }
+
+  /**
+   * Tình huống 5: gia hạn phiếu mượn ERP (trước đây luồng này không có gia hạn).
+   * Áp dụng cùng bộ luật với phiếu mượn lẻ: chưa trả hết sách, chưa quá hạn,
+   * chưa dùng hết số lần gia hạn, và không cuốn nào trong phiếu đang có độc giả
+   * khác đặt trước.
+   */
+  async renew(id: string, dto: RenewSlipDto): Promise<BorrowingSlipEntity> {
+    const now = new Date();
+    const renewableStatuses: string[] = [
+      BorrowingSlipStatus.BORROWED,
+      BorrowingSlipStatus.PARTIAL_RETURNED,
+    ];
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const slip = await tx.borrowingSlip.findUnique({
+        where: { id },
+        include: { items: { include: { book: { select: { title: true } } } } },
+      });
+
+      if (!slip) {
+        throw new NotFoundException(`Không tìm thấy phiếu mượn với ID "${id}"`);
+      }
+
+      if (!renewableStatuses.includes(slip.status)) {
+        throw new BadRequestException(
+          `Chỉ gia hạn được phiếu đang ở trạng thái BORROWED hoặc PARTIAL_RETURNED (hiện tại: ${slip.status})`,
+        );
+      }
+
+      if (this.policy.isOverdue(slip.dueDate, now)) {
+        throw new BadRequestException(
+          'Phiếu mượn đã quá hạn chót trả sách. Không được phép gia hạn thêm',
+        );
+      }
+
+      if (slip.renewCount >= this.policy.maxRenewCount) {
+        throw new BadRequestException(
+          `Đã đạt số lần gia hạn tối đa (${this.policy.maxRenewCount} lần) cho phiếu mượn này`,
+        );
+      }
+
+      if (this.policy.renewWindowDays > 0) {
+        const daysUntilDue = Math.ceil(
+          (new Date(slip.dueDate).getTime() - now.getTime()) / (24 * 60 * 60 * 1000),
+        );
+        if (daysUntilDue > this.policy.renewWindowDays) {
+          throw new BadRequestException(
+            `Chỉ được gia hạn khi còn tối đa ${this.policy.renewWindowDays} ngày tới hạn trả (hiện còn ${daysUntilDue} ngày)`,
+          );
+        }
+      }
+
+      if (this.policy.blockRenewWhenReserved) {
+        const pendingItems = slip.items.filter(
+          (it) =>
+            it.status === BorrowingItemStatus.PENDING ||
+            it.status === BorrowingItemStatus.BORROWING,
+        );
+
+        for (const item of pendingItems) {
+          const waitingCount = await this.eligibility.countActiveReservationsByOthers(
+            item.bookId,
+            slip.memberId,
+            tx,
+            now,
+          );
+
+          if (waitingCount > 0) {
+            throw new ConflictException(
+              `Cuốn sách "${item.book?.title ?? item.bookId}" đang có ${waitingCount} độc giả khác đặt trước. ` +
+                'Theo chính sách thư viện, phiếu mượn này không được gia hạn và cần hoàn trả đúng hạn',
+            );
+          }
+        }
+      }
+
+      const extraDays = this.policy.resolveRenewDays(dto.extraDays);
+      const previousDueDate = new Date(slip.dueDate);
+      const newDueDate = new Date(previousDueDate.getTime() + extraDays * 24 * 60 * 60 * 1000);
+      const nextSequence = slip.renewCount + 1;
+
+      const claimed = await tx.borrowingSlip.updateMany({
+        where: { id, renewCount: slip.renewCount, status: slip.status },
+        data: {
+          dueDate: newDueDate,
+          renewCount: nextSequence,
+          notes: dto.notes
+            ? `${slip.notes ? slip.notes + ' | ' : ''}Gia hạn thêm ${extraDays} ngày: ${dto.notes.trim()}`
+            : slip.notes,
+        },
+      });
+
+      if (claimed.count === 0) {
+        throw new ConflictException(
+          'Phiếu mượn vừa được gia hạn bởi một giao dịch khác. Vui lòng tải lại dữ liệu',
+        );
+      }
+
+      await tx.loanRenewal.create({
+        data: {
+          slipId: id,
+          sequence: nextSequence,
+          previousDueDate,
+          newDueDate,
+          extraDays,
+          renewedAt: now,
+          renewedBy: dto.renewedBy?.trim() || null,
+          reason: dto.notes?.trim() || null,
+        },
+      });
+
+      return tx.borrowingSlip.findUniqueOrThrow({
+        where: { id },
+        include: { member: true, items: { include: { book: true } } },
+      });
+    });
+
+    return this.mapSlipToEntity(updated);
+  }
+
+  /** Lịch sử gia hạn của phiếu mượn ERP. */
+  async getRenewalHistory(id: string): Promise<LoanRenewalHistory[]> {
+    const slip = await this.prisma.borrowingSlip.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    if (!slip) {
+      throw new NotFoundException(`Không tìm thấy phiếu mượn với ID "${id}"`);
+    }
+
+    const history = await this.prisma.loanRenewal.findMany({
+      where: { slipId: id },
+      orderBy: { sequence: 'asc' },
+    });
+
+    return history.map((h) => ({
+      id: h.id,
+      borrowingId: h.borrowingId ?? undefined,
+      slipId: h.slipId ?? undefined,
+      sequence: h.sequence,
+      previousDueDate: h.previousDueDate,
+      newDueDate: h.newDueDate,
+      extraDays: h.extraDays,
+      renewedAt: h.renewedAt,
+      renewedBy: h.renewedBy ?? undefined,
+      reason: h.reason ?? undefined,
+    }));
+  }
+
+  /** Thanh toán tiền phạt của phiếu mượn ERP (trước đây chỉ có trên phiếu mượn lẻ). */
+  async payFine(id: string): Promise<BorrowingSlipEntity> {
+    const now = new Date();
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const slip = await tx.borrowingSlip.findUnique({
+        where: { id },
+        select: { id: true, totalFine: true, finePaid: true },
+      });
+
+      if (!slip) {
+        throw new NotFoundException(`Không tìm thấy phiếu mượn với ID "${id}"`);
+      }
+
+      if (slip.totalFine <= 0) {
+        throw new BadRequestException('Phiếu mượn này không có phát sinh tiền phạt');
+      }
+
+      if (slip.finePaid) {
+        throw new BadRequestException('Tiền phạt của phiếu mượn này đã được thanh toán trước đó');
+      }
+
+      const claimed = await tx.borrowingSlip.updateMany({
+        where: { id, finePaid: false },
+        data: { finePaid: true, finePaidAt: now },
+      });
+
+      if (claimed.count === 0) {
+        throw new ConflictException('Tiền phạt vừa được thanh toán bởi một giao dịch khác');
+      }
+
+      return tx.borrowingSlip.findUniqueOrThrow({
+        where: { id },
+        include: { member: true, items: { include: { book: true } } },
+      });
+    });
+
+    return this.mapSlipToEntity(updated);
+  }
+
+  private async nextSlipNumber(tx: PrismaTx, now: Date): Promise<string> {
+    const prefix = `SLIP-${now.getFullYear()}-`;
+
+    const last = await tx.borrowingSlip.findFirst({
+      where: { slipNumber: { startsWith: prefix } },
+      orderBy: { slipNumber: 'desc' },
+      select: { slipNumber: true },
+    });
+
+    const lastSequence = last ? Number.parseInt(last.slipNumber.slice(prefix.length), 10) : 0;
+    const nextSequence = Number.isFinite(lastSequence) ? lastSequence + 1 : 1;
+
+    return `${prefix}${nextSequence.toString().padStart(4, '0')}`;
   }
 
   private mapSlipToEntity(s: any): BorrowingSlipEntity {
@@ -567,6 +808,8 @@ export class BorrowingSlipsService {
       notes: s.notes || undefined,
       totalFine: s.totalFine,
       finePaid: s.finePaid,
+      finePaidAt: s.finePaidAt || undefined,
+      renewCount: s.renewCount ?? 0,
       items: (s.items || []).map((it: any): BorrowingSlipItemEntity => ({
         id: it.id,
         slipId: it.slipId,
@@ -580,6 +823,8 @@ export class BorrowingSlipsService {
         returnDate: it.returnDate || undefined,
         returnCondition: it.returnCondition || undefined,
         fineAmount: it.fineAmount,
+        lateFee: it.lateFee ?? 0,
+        compensationFee: it.compensationFee ?? 0,
         notes: it.notes || undefined,
         createdAt: it.createdAt,
         updatedAt: it.updatedAt,
