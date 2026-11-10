@@ -99,8 +99,12 @@ npm run lint
 | :--- | :--- | :--- |
 | `POST` | `/api/auth/register` | **Đăng ký**: Tạo tài khoản mới gồm `email`, `phone`, `password`, `fullName` (mã hóa Bcrypt, tự liên kết thẻ thư viện) |
 | `POST` | `/api/auth/login` | **Đăng nhập**: Đăng nhập linh hoạt bằng `email` hoặc `phone` + `password`, cấp Bearer JWT Token |
+| `POST` | `/api/auth/forgot-password` | **Quên mật khẩu**: Gửi liên kết đặt lại mật khẩu qua email (không yêu cầu token) |
+| `POST` | `/api/auth/reset-password` | **Đặt lại mật khẩu**: Cập nhật mật khẩu bằng token một lần trong email (không yêu cầu token đăng nhập) |
 | `GET` | `/api/auth/me` | **Thông tin cá nhân**: Lấy hồ sơ tài khoản đang đăng nhập (yêu cầu Bearer Token) |
 | `POST` | `/api/auth/change-password` | **Đổi mật khẩu**: Cập nhật mật khẩu mới cho tài khoản (yêu cầu Bearer Token) |
+
+Chi tiết request/response và hướng dẫn map giao diện cho hai endpoint mới nằm tại [`docs/PASSWORD_RESET_API.md`](docs/PASSWORD_RESET_API.md).
 
 ### 1. Quản Lý Sách (`/api/books`)
 | Phương thức | Endpoint | Mô tả |

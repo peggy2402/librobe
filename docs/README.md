@@ -15,12 +15,14 @@ Tài liệu được phân loại rõ ràng theo từng phân hệ để các th
    * Luồng xử lý dữ liệu và Exception Filter tập trung.
 
 2. [Tài Liệu Chi Tiết API (API Reference)](./API_REFERENCE.md)
-   * Toàn bộ 24 RESTful endpoints: Auth, Books, Borrowings, Members, Categories, Authors, Stats.
+   * Toàn bộ RESTful endpoints: Auth, Books, Borrowings, Members, Categories, Authors, Stats.
    * Cấu trúc Header Bearer JWT Authorization, Request DTO và Response format.
    * Bảng mã lỗi HTTP và Swagger UI tích hợp.
 
+   * [Hướng dẫn API Quên mật khẩu](./PASSWORD_RESET_API.md): request, response và mapping frontend.
+
 3. [Thiết Kế Cơ Sở Dữ Liệu (Database Schema & ERD)](./DATABASE_SCHEMA.md)
-   * Chi tiết 6 bảng thực thể: `users`, `books`, `borrowings`, `members`, `categories`, `authors`.
+   * Chi tiết các bảng thực thể, bao gồm `password_reset_tokens` cho luồng đặt lại mật khẩu.
    * Khóa ngoại, quan hệ 1-N, N-N, Indexing và cơ chế Supabase PgBouncer Pooler.
 
 4. [Hướng Dẫn Cài Đặt Phát Triển (Development Setup Guide)](./DEVELOPMENT_GUIDE.md)
@@ -47,6 +49,7 @@ librobe/
 │   ├── README.md               # Mục lục tài liệu
 │   ├── ARCHITECTURE.md         # Kiến trúc hệ thống
 │   ├── API_REFERENCE.md        # Danh mục API
+│   ├── PASSWORD_RESET_API.md   # Hướng dẫn tích hợp quên mật khẩu
 │   ├── DATABASE_SCHEMA.md      # Lược đồ database
 │   ├── DEVELOPMENT_GUIDE.md    # Hướng dẫn setup cho dev
 │   └── DEPLOYMENT_RAILWAY.md   # Hướng dẫn deploy

@@ -24,8 +24,12 @@ Toàn bộ API được mô tả trực quan và hỗ trợ test trực tiếp t
 | :--- | :--- | :--- | :--- |
 | `POST` | `/api/auth/login` | Không | Đăng nhập bằng Email / SĐT / Username + Mật khẩu |
 | `POST` | `/api/auth/register` | Không | Đăng ký tài khoản độc giả hoặc nhân viên |
+| `POST` | `/api/auth/forgot-password` | Không | Gửi email chứa liên kết đặt lại mật khẩu |
+| `POST` | `/api/auth/reset-password` | Không | Đặt mật khẩu mới bằng token một lần |
 | `GET` | `/api/auth/me` | **Có** | Lấy thông tin hồ sơ của tài khoản đang đăng nhập |
 | `POST` | `/api/auth/change-password` | **Có** | Đổi mật khẩu tài khoản |
+
+Chi tiết đầy đủ về request, response, lỗi và mapping frontend của hai endpoint reset mật khẩu xem tại [`PASSWORD_RESET_API.md`](PASSWORD_RESET_API.md).
 
 `GET /api/auth/me` trả thêm `memberId` cho tài khoản có vai trò `MEMBER`. Với tài khoản `ADMIN` hoặc `LIBRARIAN`, trường này có giá trị `null`.
 

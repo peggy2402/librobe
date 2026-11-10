@@ -12,6 +12,7 @@ Tài liệu này mô tả chi tiết kiến trúc phần mềm, nguyên lý thi�
 | **Framework** | NestJS v12 (`@nestjs/core`, `@nestjs/common`, `@nestjs/platform-express`) | Khung ứng dụng dạng module, áp dụng Dependency Injection (DI) |
 | **Database & ORM** | PostgreSQL (Supabase Cloud), Prisma ORM v6 (`@prisma/client`) | Lưu trữ dữ liệu quan hệ, type-safe queries, migration tự động |
 | **Xác thực (Auth)** | `@nestjs/jwt`, `bcryptjs` | Cấp phát Bearer Token JWT, băm mật khẩu bảo mật (Salt 10) |
+| **Password Reset** | `node:crypto`, `MailService` (Resend/console) | Token reset một lần, lưu hash, gửi liên kết qua email |
 | **Tài liệu API** | `@nestjs/swagger`, `swagger-ui-express` | Tự động sinh tài liệu OpenAPI 3.0 Interactive Docs |
 | **Validation** | `class-validator`, `class-transformer` | Xác thực dữ liệu đầu vào DTO tự động qua `ValidationPipe` |
 | **Frontend** | Vanilla HTML5 / Modular CSS3 / ES6 JavaScript | Single Page Application (SPA) siêu nhẹ, zero dependencies |

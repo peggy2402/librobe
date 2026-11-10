@@ -42,6 +42,13 @@ DIRECT_URL="postgresql://postgres.[REF]:[PASS]@aws-0-ap-northeast-1.pooler.supab
 
 ADMIN_USERNAME=chien
 ADMIN_PASSWORD=Chienhpt102$$
+
+# Password reset email (local có thể dùng console để in link reset)
+APP_BASE_URL=http://localhost:3000
+MAIL_PROVIDER=console
+RESEND_API_KEY=
+MAIL_FROM=
+RESET_TOKEN_TTL_MINUTES=20
 ```
 
 ### Bước 4: Đồng Bộ Cơ Sở Dữ Liệu & Nạp Dữ Liệu Mẫu
@@ -53,6 +60,7 @@ ADMIN_PASSWORD=Chienhpt102$$
    ```bash
    npm run prisma:push
    ```
+   Lệnh này bổ sung bảng `password_reset_tokens`; không xóa hoặc thay đổi dữ liệu tài khoản hiện có.
 3. Nạp dữ liệu mẫu ban đầu (sách mẫu, danh mục, độc giả, tài khoản admin):
    ```bash
    npm run prisma:seed

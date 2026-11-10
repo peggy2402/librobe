@@ -5,6 +5,7 @@
 const auth = {
   init() {
     this.bindEvents();
+    this.resetToken = new URLSearchParams(window.location.search).get('resetToken');
     this.checkSession();
   },
 
@@ -13,6 +14,12 @@ const auth = {
     if (loginForm) {
       loginForm.addEventListener('submit', (e) => this.handleLogin(e));
     }
+
+    document.getElementById('show-forgot-password')?.addEventListener('click', () => this.showAuthForm('forgot'));
+    document.getElementById('back-to-login-from-forgot')?.addEventListener('click', () => this.showAuthForm('login'));
+    document.getElementById('back-to-login-from-reset')?.addEventListener('click', () => this.cancelResetFlow());
+    document.getElementById('forgot-password-form')?.addEventListener('submit', (e) => this.handleForgotPassword(e));
+    document.getElementById('reset-password-form')?.addEventListener('submit', (e) => this.handleResetPassword(e));
 
     const logoutButtons = document.querySelectorAll('.btn-logout');
     logoutButtons.forEach((btn) => {
@@ -64,6 +71,13 @@ const auth = {
     const authWrapper = document.getElementById('auth-wrapper');
     const appLayout = document.getElementById('app-layout');
 
+    if (this.resetToken) {
+      if (authWrapper) authWrapper.style.display = 'flex';
+      if (appLayout) appLayout.style.display = 'none';
+      this.showAuthForm('reset');
+      return;
+    }
+
     if (!token) {
       if (authWrapper) authWrapper.style.display = 'flex';
       if (appLayout) appLayout.style.display = 'none';
@@ -86,6 +100,111 @@ const auth = {
       api.setCurrentUser(null);
       if (authWrapper) authWrapper.style.display = 'flex';
       if (appLayout) appLayout.style.display = 'none';
+    }
+  },
+
+  showAuthForm(formName) {
+    const forms = {
+      login: document.getElementById('login-form'),
+      forgot: document.getElementById('forgot-password-form'),
+      reset: document.getElementById('reset-password-form'),
+    };
+    Object.entries(forms).forEach(([name, form]) => {
+      if (form) form.style.display = name === formName ? 'flex' : 'none';
+    });
+    document.getElementById('login-error-alert')?.style.setProperty('display', 'none');
+    if (formName === 'forgot') document.getElementById('forgot-email')?.focus();
+    if (formName === 'reset') document.getElementById('reset-password')?.focus();
+  },
+
+  cancelResetFlow() {
+    this.resetToken = null;
+    window.history.replaceState({}, document.title, window.location.pathname);
+    this.showAuthForm('login');
+  },
+
+  async handleForgotPassword(e) {
+    e.preventDefault();
+    const emailInput = document.getElementById('forgot-email');
+    const submitBtn = document.getElementById('forgot-submit-btn');
+    const email = emailInput?.value.trim().toLowerCase();
+    if (!email) {
+      emailInput?.classList.add('is-invalid');
+      ui.toast('Vui lòng nhập email tài khoản', 'error');
+      return;
+    }
+    emailInput?.classList.remove('is-invalid');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerText = 'Đang gửi...';
+    }
+    try {
+      await api.post('/api/auth/forgot-password', { email });
+      ui.toast('Nếu email tồn tại, hướng dẫn đặt lại mật khẩu đã được gửi.', 'success');
+      document.getElementById('forgot-password-form')?.reset();
+    } catch {
+      // Keep the same user-facing response for account enumeration protection.
+      ui.toast('Nếu email tồn tại, hướng dẫn đặt lại mật khẩu đã được gửi.', 'success');
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'Gửi liên kết đặt lại';
+      }
+    }
+  },
+
+  async handleResetPassword(e) {
+    e.preventDefault();
+    const passwordInput = document.getElementById('reset-password');
+    const confirmInput = document.getElementById('reset-password-confirm');
+    const errorEl = document.getElementById('reset-password-error');
+    const submitBtn = document.getElementById('reset-submit-btn');
+    const password = passwordInput?.value || '';
+    const confirmation = confirmInput?.value || '';
+    const showError = (message) => {
+      if (errorEl) {
+        errorEl.textContent = message;
+        errorEl.style.display = 'block';
+      }
+      ui.toast(message, 'error');
+    };
+    if (errorEl) errorEl.style.display = 'none';
+    passwordInput?.classList.remove('is-invalid');
+    confirmInput?.classList.remove('is-invalid');
+    if (password.length < 6 || password.length > 50) {
+      passwordInput?.classList.add('is-invalid');
+      showError('Mật khẩu phải có từ 6 đến 50 ký tự');
+      return;
+    }
+    if (password !== confirmation) {
+      confirmInput?.classList.add('is-invalid');
+      showError('Mật khẩu xác nhận không khớp');
+      return;
+    }
+    if (!this.resetToken) {
+      showError('Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn');
+      return;
+    }
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerText = 'Đang cập nhật...';
+    }
+    try {
+      await api.post('/api/auth/reset-password', { token: this.resetToken, newPassword: password });
+      api.setToken(null);
+      api.setCurrentUser(null);
+      this.resetToken = null;
+      window.history.replaceState({}, document.title, window.location.pathname);
+      document.getElementById('reset-password-form')?.reset();
+      this.showAuthForm('login');
+      ui.toast('Mật khẩu đã được đặt lại. Vui lòng đăng nhập lại.', 'success');
+    } catch (err) {
+      showError(err.message || 'Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn');
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'Đặt lại mật khẩu';
+      }
     }
   },
 
