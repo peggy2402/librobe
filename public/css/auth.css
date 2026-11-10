@@ -72,6 +72,48 @@
   gap: var(--space-4);
 }
 
+.auth-secondary-form {
+  animation: authFadeUp 200ms ease-out;
+}
+
+.auth-link-button {
+  align-self: center;
+  border: 0;
+  background: transparent;
+  color: #93c5fd;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8125rem;
+  padding: var(--space-1) var(--space-2);
+}
+
+.auth-link-button:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+.auth-help-text {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  margin: calc(var(--space-2) * -1) 0 0;
+  text-align: center;
+}
+
+.auth-form-message {
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  margin: calc(var(--space-2) * -1) 0 0;
+  padding: var(--space-3);
+}
+
+.auth-form-message-error {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+
 .quick-login-box {
   margin-top: var(--space-5);
   padding: var(--space-4);

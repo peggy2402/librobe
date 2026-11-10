@@ -22,8 +22,10 @@ import { AuthService } from './auth.service.js';
 import { CurrentUser } from './decorators/current-user.decorator.js';
 import { AuthResponseDto, UserProfileDto } from './dto/auth-response.dto.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
+import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
+import { ResetPasswordDto } from './dto/reset-password.dto.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 
 @ApiTags('Auth - Xác thực & Phân quyền (Đăng ký / Đăng nhập)')
@@ -71,6 +73,47 @@ export class AuthController {
   })
   login(@Body() dto: LoginDto): Promise<AuthResponseDto> {
     return this.authService.login(dto);
+  }
+
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Yêu cầu đặt lại mật khẩu',
+    description:
+      'Nhận email và gửi liên kết đặt lại mật khẩu. API luôn trả về cùng một thông báo để không làm lộ email có tồn tại hay không.',
+  })
+  @ApiOkResponse({
+    description: 'Yêu cầu đã được tiếp nhận',
+    schema: {
+      example: {
+        success: true,
+        message: 'Nếu email tồn tại, hướng dẫn đặt lại mật khẩu đã được gửi.',
+      },
+    },
+  })
+  @ApiBadRequestResponse({ description: 'Email không hợp lệ' })
+  requestPasswordReset(@Body() dto: ForgotPasswordDto): Promise<{ message: string; success: boolean }> {
+    return this.authService.requestPasswordReset(dto);
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Đặt lại mật khẩu bằng token',
+    description: 'Kiểm tra token một lần, cập nhật mật khẩu mới và vô hiệu hóa token đã sử dụng.',
+  })
+  @ApiOkResponse({
+    description: 'Đặt lại mật khẩu thành công',
+    schema: {
+      example: {
+        success: true,
+        message: 'Mật khẩu đã được đặt lại thành công. Vui lòng đăng nhập lại.',
+      },
+    },
+  })
+  @ApiBadRequestResponse({ description: 'Token không hợp lệ, hết hạn hoặc mật khẩu không đúng quy tắc' })
+  resetPassword(@Body() dto: ResetPasswordDto): Promise<{ message: string; success: boolean }> {
+    return this.authService.resetPassword(dto);
   }
 
   @Get('me')

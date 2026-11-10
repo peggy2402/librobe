@@ -1,19 +1,24 @@
 import {
   BadRequestException,
   ConflictException,
+  InternalServerErrorException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import bcrypt from 'bcryptjs';
+import { createHash, randomBytes } from 'node:crypto';
 import { MemberStatus } from '../../common/enums/member-status.enum.js';
 import { UserRole } from '../../common/enums/user-role.enum.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuthResponseDto, UserProfileDto } from './dto/auth-response.dto.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
+import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
+import { ResetPasswordDto } from './dto/reset-password.dto.js';
+import { MailService } from './mail.service.js';
 
 @Injectable()
 export class AuthService {
@@ -22,7 +27,102 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly mailService: MailService,
   ) {}
+
+  async requestPasswordReset(dto: ForgotPasswordDto): Promise<{ message: string; success: boolean }> {
+    const response = {
+      success: true,
+      message: 'Nếu email tồn tại, hướng dẫn đặt lại mật khẩu đã được gửi.',
+    };
+    const cleanEmail = dto.email.trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({ where: { email: cleanEmail } });
+
+    if (!user || !user.isActive) {
+      return response;
+    }
+
+    const recentToken = await this.prisma.passwordResetToken.findFirst({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (recentToken && Date.now() - recentToken.createdAt.getTime() < 60_000) {
+      return response;
+    }
+
+    const rawToken = randomBytes(32).toString('base64url');
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const configuredTtl = Number.parseInt(process.env.RESET_TOKEN_TTL_MINUTES || '20', 10);
+    const ttlMinutes = Number.isFinite(configuredTtl) ? Math.max(5, configuredTtl) : 20;
+    const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
+
+    await this.prisma.$transaction([
+      this.prisma.passwordResetToken.deleteMany({ where: { userId: user.id } }),
+      this.prisma.passwordResetToken.create({
+        data: { userId: user.id, tokenHash, expiresAt },
+      }),
+    ]);
+
+    try {
+      await this.mailService.sendPasswordResetEmail(user.email, rawToken);
+    } catch (error) {
+      // Keep the public response generic to prevent account enumeration.
+      // The error is still surfaced to server logs for operational monitoring.
+      console.error('[password-reset] Không thể gửi email', error);
+    }
+
+    return response;
+  }
+
+  async resetPassword(dto: ResetPasswordDto): Promise<{ message: string; success: boolean }> {
+    const tokenHash = createHash('sha256').update(dto.token).digest('hex');
+    const now = new Date();
+    const resetToken = await this.prisma.passwordResetToken.findUnique({
+      where: { tokenHash },
+    });
+
+    if (!resetToken || resetToken.usedAt || resetToken.expiresAt <= now) {
+      throw new BadRequestException('Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn');
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const claimed = await tx.passwordResetToken.updateMany({
+          where: {
+            id: resetToken.id,
+            usedAt: null,
+            expiresAt: { gt: now },
+          },
+          data: { usedAt: now },
+        });
+
+        if (claimed.count !== 1) {
+          throw new BadRequestException('Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn');
+        }
+
+        await tx.user.update({
+          where: { id: resetToken.userId },
+          data: { password: hashedPassword },
+        });
+
+        await tx.passwordResetToken.deleteMany({
+          where: { userId: resetToken.userId, id: { not: resetToken.id } },
+        });
+      });
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Không thể đặt lại mật khẩu lúc này');
+    }
+
+    return {
+      success: true,
+      message: 'Mật khẩu đã được đặt lại thành công. Vui lòng đăng nhập lại.',
+    };
+  }
 
   async register(dto: RegisterDto): Promise<AuthResponseDto> {
     const cleanEmail = dto.email.trim().toLowerCase();
