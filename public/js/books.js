@@ -11,9 +11,11 @@ const books = {
   currentSelectedBookId: null,
 
   init() {
+    // Chỉ gắn sự kiện. KHÔNG gọi API ở đây: `init()` chạy ngay lúc
+    // DOMContentLoaded, trước khi biết người dùng đã đăng nhập hay chưa.
+    // Việc nạp dữ liệu cho các select được `auth.loadInitialData()` gọi sau khi
+    // xác thực thành công.
     this.bindEvents();
-    this.loadCategoriesSelect();
-    this.loadAuthorsSelect();
   },
 
   bindEvents() {

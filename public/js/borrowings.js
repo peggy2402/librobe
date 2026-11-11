@@ -7,8 +7,8 @@ const borrowings = {
   cachedBorrowings: [],
 
   init() {
+    // Xem ghi chú ở `books.init()`: không gọi API tại thời điểm này.
     this.bindEvents();
-    this.loadMembersSelect();
   },
 
   bindEvents() {

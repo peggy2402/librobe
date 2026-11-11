@@ -92,15 +92,31 @@ const auth = {
       if (authWrapper) authWrapper.style.display = 'none';
       if (appLayout) appLayout.style.display = 'flex';
 
-      // Load initial dashboard data
-      if (window.stats) window.stats.loadOverview();
-      if (window.books) window.books.loadBooks();
+      this.loadInitialData();
     } catch {
       api.setToken(null);
       api.setCurrentUser(null);
       if (authWrapper) authWrapper.style.display = 'flex';
       if (appLayout) appLayout.style.display = 'none';
     }
+  },
+
+  /**
+   * Nạp toàn bộ dữ liệu khởi đầu của dashboard.
+   *
+   * Chỉ được gọi SAU KHI xác thực thành công. Trước đây các lời gọi này nằm
+   * trong `books.init()` / `borrowings.init()` và chạy ngay lúc
+   * DOMContentLoaded — khi khách chưa đăng nhập, chúng nhận 401 và kích hoạt
+   * `window.location.reload()` trong `api.request`, gây vòng lặp tải vô hạn.
+   */
+  loadInitialData() {
+    if (window.stats) window.stats.loadOverview();
+    if (window.books) {
+      window.books.loadBooks();
+      window.books.loadCategoriesSelect();
+      window.books.loadAuthorsSelect();
+    }
+    if (window.borrowings) window.borrowings.loadMembersSelect();
   },
 
   showAuthForm(formName) {
@@ -259,9 +275,7 @@ const auth = {
       if (authWrapper) authWrapper.style.display = 'none';
       if (appLayout) appLayout.style.display = 'flex';
 
-      // Trigger data loads
-      if (window.stats) window.stats.loadOverview();
-      if (window.books) window.books.loadBooks();
+      this.loadInitialData();
     } catch (err) {
       const errorMsg = err.message || 'Tài khoản hoặc mật khẩu không chính xác';
       
