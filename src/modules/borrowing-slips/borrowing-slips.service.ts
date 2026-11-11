@@ -20,6 +20,16 @@ import { RenewSlipDto } from './dto/renew-slip.dto.js';
 import { ReturnSlipItemsDto } from './dto/return-slip-items.dto.js';
 import { BorrowingSlipEntity, BorrowingSlipItemEntity } from './entities/borrowing-slip.entity.js';
 
+/**
+ * Người thực hiện thao tác trên chứng từ, lấy từ JWT (`request.user`).
+ * Lưu cả `email` (hiển thị, giữ tương thích API cũ) và `id` (khóa ngoại tới
+ * `users`, truy ngược được dù người đó đổi email sau này).
+ */
+export interface SlipActor {
+  id: string;
+  email: string;
+}
+
 @Injectable()
 export class BorrowingSlipsService {
   constructor(
@@ -211,7 +221,7 @@ export class BorrowingSlipsService {
    *  - trừ kho bằng atomic conditional update -> chỉ một phiếu giành được bản
    *    sách cuối cùng, phiếu còn lại nhận 409 và rollback toàn bộ.
    */
-  async approve(id: string, approvedBy = 'Librarian'): Promise<BorrowingSlipEntity> {
+  async approve(id: string, actor: SlipActor): Promise<BorrowingSlipEntity> {
     const now = new Date();
 
     const updatedSlip = await this.prisma.$transaction(async (tx) => {
@@ -237,7 +247,8 @@ export class BorrowingSlipsService {
           status: BorrowingSlipStatus.BORROWED,
           borrowDate: now,
           approvedAt: now,
-          approvedBy,
+          approvedBy: actor.email,
+          approvedById: actor.id,
         },
       });
 
@@ -283,39 +294,63 @@ export class BorrowingSlipsService {
     return this.mapSlipToEntity(updatedSlip);
   }
 
-  async reject(id: string, dto: RejectBorrowingSlipDto): Promise<BorrowingSlipEntity> {
-    const slip = await this.findOne(id);
+  async reject(
+    id: string,
+    dto: RejectBorrowingSlipDto,
+    actor: SlipActor,
+  ): Promise<BorrowingSlipEntity> {
     const now = new Date();
 
-    if (slip.status !== BorrowingSlipStatus.PENDING_APPROVAL) {
-      throw new ConflictException(
-        `DOCUMENT_ALREADY_PROCESSED: Không thể từ chối phiếu mượn đang ở trạng thái "${slip.status}"`,
-      );
-    }
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const slip = await tx.borrowingSlip.findUnique({ where: { id }, select: { status: true } });
 
-    const updated = await this.prisma.borrowingSlip.update({
-      where: { id },
-      data: {
-        status: BorrowingSlipStatus.REJECTED,
-        rejectedAt: now,
-        rejectReason: dto.reason.trim(),
-        items: {
-          updateMany: {
-            where: { slipId: id },
-            data: { status: BorrowingItemStatus.CANCELLED },
-          },
+      if (!slip) {
+        throw new NotFoundException(`Không tìm thấy phiếu mượn với ID "${id}"`);
+      }
+
+      if (slip.status !== BorrowingSlipStatus.PENDING_APPROVAL) {
+        throw new ConflictException(
+          `DOCUMENT_ALREADY_PROCESSED: Không thể từ chối phiếu mượn đang ở trạng thái "${slip.status}"`,
+        );
+      }
+
+      // Chốt trạng thái atomic -> hai request từ chối đồng thời chỉ một thành công.
+      const claimed = await tx.borrowingSlip.updateMany({
+        where: { id, status: BorrowingSlipStatus.PENDING_APPROVAL },
+        data: {
+          status: BorrowingSlipStatus.REJECTED,
+          rejectedAt: now,
+          rejectedBy: actor.email,
+          rejectedById: actor.id,
+          rejectReason: dto.reason.trim(),
         },
-      },
-      include: {
-        member: true,
-        items: { include: { book: true } },
-      },
+      });
+
+      if (claimed.count === 0) {
+        throw new ConflictException(
+          'DOCUMENT_ALREADY_PROCESSED: Phiếu mượn vừa được xử lý bởi một giao dịch khác',
+        );
+      }
+
+      await tx.borrowingSlipItem.updateMany({
+        where: { slipId: id },
+        data: { status: BorrowingItemStatus.CANCELLED },
+      });
+
+      return tx.borrowingSlip.findUniqueOrThrow({
+        where: { id },
+        include: { member: true, items: { include: { book: true } } },
+      });
     });
 
     return this.mapSlipToEntity(updated);
   }
 
-  async cancel(id: string, dto: CancelBorrowingSlipDto): Promise<BorrowingSlipEntity> {
+  async cancel(
+    id: string,
+    dto: CancelBorrowingSlipDto,
+    actor: SlipActor,
+  ): Promise<BorrowingSlipEntity> {
     const now = new Date();
     const closedStatuses: string[] = [
       BorrowingSlipStatus.COMPLETED,
@@ -348,6 +383,8 @@ export class BorrowingSlipsService {
         data: {
           status: BorrowingSlipStatus.CANCELLED,
           cancelledAt: now,
+          cancelledBy: actor.email,
+          cancelledById: actor.id,
           cancelReason: dto.reason.trim(),
         },
       });
@@ -803,7 +840,14 @@ export class BorrowingSlipsService {
       dueDate: s.dueDate,
       approvedAt: s.approvedAt || undefined,
       approvedBy: s.approvedBy || undefined,
+      approvedById: s.approvedById || undefined,
+      rejectedAt: s.rejectedAt || undefined,
+      rejectedBy: s.rejectedBy || undefined,
+      rejectedById: s.rejectedById || undefined,
       rejectReason: s.rejectReason || undefined,
+      cancelledAt: s.cancelledAt || undefined,
+      cancelledBy: s.cancelledBy || undefined,
+      cancelledById: s.cancelledById || undefined,
       cancelReason: s.cancelReason || undefined,
       notes: s.notes || undefined,
       totalFine: s.totalFine,

@@ -9,8 +9,10 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
@@ -18,16 +20,27 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiForbiddenResponse,
   ApiTags,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { PaginationDto } from '../../common/dto/pagination.dto.js';
+import { UserRole } from '../../common/enums/user-role.enum.js';
+import { Roles } from '../auth/decorators/roles.decorator.js';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../auth/guards/roles.guard.js';
+
 import { AuthorsService } from './authors.service.js';
 import { CreateAuthorDto } from './dto/create-author.dto.js';
 import { UpdateAuthorDto } from './dto/update-author.dto.js';
 import { Author } from './entities/author.entity.js';
 
 @ApiTags('Authors - Quản lý Tác giả')
+@ApiBearerAuth('JWT-auth')
+@ApiUnauthorizedResponse({ description: 'Thiếu Bearer Token hoặc Token không hợp lệ/hết hạn' })
+@ApiForbiddenResponse({ description: 'Tài khoản không có vai trò phù hợp để thực hiện thao tác này' })
 @Controller('authors')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class AuthorsController {
   constructor(private readonly authorsService: AuthorsService) {}
 
@@ -65,6 +78,7 @@ export class AuthorsController {
     return this.authorsService.findOne(id);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -85,6 +99,7 @@ export class AuthorsController {
     return this.authorsService.create(dto);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Patch(':id')
   @ApiOperation({
     summary: 'Cập nhật thông tin tác giả',
@@ -109,6 +124,7 @@ export class AuthorsController {
     return this.authorsService.update(id, dto);
   }
 
+  @Roles(UserRole.ADMIN)
   @Delete(':id')
   @ApiOperation({
     summary: 'Xóa một tác giả',

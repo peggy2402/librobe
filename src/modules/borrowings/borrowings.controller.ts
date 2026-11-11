@@ -15,6 +15,7 @@ import {
   ApiCreatedResponse,
   ApiNotFoundResponse,
   ApiConflictResponse,
+  ApiForbiddenResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
@@ -29,15 +30,21 @@ import { RenewLoanDto } from './dto/renew-loan.dto.js';
 import { ReturnBookDto } from './dto/return-book.dto.js';
 import { Borrowing } from './entities/borrowing.entity.js';
 import { LoanRenewalHistory } from './entities/loan-renewal.entity.js';
+import { UserRole } from '../../common/enums/user-role.enum.js';
+import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../auth/guards/roles.guard.js';
 
 @ApiTags('Borrowings - Quản lý Mượn / Trả Sách')
 @ApiBearerAuth('JWT-auth')
 @ApiUnauthorizedResponse({
   description: 'Thiếu Bearer Token hoặc Token không hợp lệ/hết hạn',
 })
+@ApiForbiddenResponse({
+  description: 'Thao tác tại quầy chỉ dành cho ADMIN hoặc LIBRARIAN',
+})
 @Controller('borrowings')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class BorrowingsController {
   constructor(private readonly borrowingsService: BorrowingsService) {}
 
@@ -120,6 +127,7 @@ export class BorrowingsController {
     return this.borrowingsService.findOne(id);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -148,6 +156,7 @@ export class BorrowingsController {
     return this.borrowingsService.borrowBook(dto);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Post(':id/return')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -180,6 +189,7 @@ export class BorrowingsController {
     return this.borrowingsService.returnBook(id, dto);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Post(':id/renew')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -213,6 +223,7 @@ export class BorrowingsController {
     return this.borrowingsService.renewLoan(id, dto);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Post(':id/pay-fine')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

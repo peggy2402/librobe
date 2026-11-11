@@ -9,8 +9,10 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
@@ -18,16 +20,27 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiForbiddenResponse,
   ApiTags,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { CreateMemberDto } from './dto/create-member.dto.js';
 import { FilterMemberDto } from './dto/filter-member.dto.js';
 import { UpdateMemberDto } from './dto/update-member.dto.js';
 import { Member } from './entities/member.entity.js';
+import { UserRole } from '../../common/enums/user-role.enum.js';
+import { Roles } from '../auth/decorators/roles.decorator.js';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../auth/guards/roles.guard.js';
+
 import { MembersService } from './members.service.js';
 
 @ApiTags('Members - Quản lý Độc Giả & Thẻ Thư Viện')
+@ApiBearerAuth('JWT-auth')
+@ApiUnauthorizedResponse({ description: 'Thiếu Bearer Token hoặc Token không hợp lệ/hết hạn' })
+@ApiForbiddenResponse({ description: 'Tài khoản không có vai trò phù hợp để thực hiện thao tác này' })
 @Controller('members')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class MembersController {
   constructor(private readonly membersService: MembersService) {}
 
@@ -121,6 +134,7 @@ export class MembersController {
     return this.membersService.findOne(id);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -142,6 +156,7 @@ export class MembersController {
     return this.membersService.create(dto);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Patch(':id')
   @ApiOperation({
     summary: 'Cập nhật thông tin độc giả hoặc gia hạn thẻ',
@@ -166,6 +181,7 @@ export class MembersController {
     return this.membersService.update(id, dto);
   }
 
+  @Roles(UserRole.ADMIN)
   @Delete(':id')
   @ApiOperation({
     summary: 'Xóa hoặc hủy hồ sơ độc giả',

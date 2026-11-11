@@ -13,6 +13,9 @@ import { BorrowingSlipsService } from './borrowing-slips.service.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 
+/** Thủ thư thực hiện thao tác, lấy từ JWT trong thực tế. */
+const ACTOR = { id: 'user-02', email: 'thuthu@librobe.vn' };
+
 describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => {
   let service: BorrowingSlipsService;
   let prismaMock: any;
@@ -285,7 +288,7 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
         { id: 'item-01', bookId: 'book-01', quantity: 2, book: { title: 'Clean Code' } },
       ]);
 
-      await service.approve('slip-01', 'thuthu@librobe.vn');
+      await service.approve('slip-01', ACTOR);
 
       expect(prismaMock.book.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -310,7 +313,7 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
         items: [],
       });
 
-      await expect(service.approve('slip-01')).rejects.toThrow(ConflictException);
+      await expect(service.approve('slip-01', ACTOR)).rejects.toThrow(ConflictException);
       expect(prismaMock.book.updateMany).not.toHaveBeenCalled();
     });
 
@@ -320,7 +323,7 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
       ]);
       prismaMock.book.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.approve('slip-01')).rejects.toThrow(ConflictException);
+      await expect(service.approve('slip-01', ACTOR)).rejects.toThrow(ConflictException);
       expect(prismaMock.member.update).not.toHaveBeenCalled();
     });
   });

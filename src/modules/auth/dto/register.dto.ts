@@ -1,15 +1,12 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty } from '@nestjs/swagger';
 import {
   IsEmail,
-  IsEnum,
   IsNotEmpty,
-  IsOptional,
   IsString,
   Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
-import { UserRole } from '../../../common/enums/user-role.enum.js';
 
 export class RegisterDto {
   @ApiProperty({
@@ -52,13 +49,16 @@ export class RegisterDto {
   @MaxLength(100, { message: 'Họ tên không được vượt quá 100 ký tự' })
   fullName!: string;
 
-  @ApiPropertyOptional({
-    description: 'Vai trò tài khoản (mặc định: MEMBER)',
-    enum: UserRole,
-    default: UserRole.MEMBER,
-    example: UserRole.MEMBER,
-  })
-  @IsOptional()
-  @IsEnum(UserRole, { message: 'Vai trò tài khoản không hợp lệ' })
-  role?: UserRole = UserRole.MEMBER;
+  // CẢNH BÁO BẢO MẬT — KHÔNG thêm lại field `role` vào DTO này.
+  //
+  // Trước đây DTO có `role?: UserRole` và service dùng thẳng giá trị client gửi
+  // lên. Vì `POST /auth/register` là endpoint công khai không cần token, bất kỳ
+  // ai cũng tự tạo được tài khoản ADMIN chỉ bằng `{"role":"ADMIN"}` — leo thang
+  // đặc quyền, đồng thời vô hiệu hóa toàn bộ RolesGuard.
+  //
+  // Đăng ký nay luôn tạo tài khoản MEMBER. Việc nâng vai trò là thao tác có
+  // kiểm soát, chỉ ADMIN thực hiện qua `PATCH /api/users/:id/role`.
+  //
+  // ValidationPipe đang bật `whitelist: true` nên client cũ còn gửi `role` thì
+  // field đó bị loại bỏ im lặng, không gây lỗi 400.
 }
