@@ -173,7 +173,7 @@ const books = {
           <td>
             <div style="display: flex; gap: 6px;" onclick="event.stopPropagation()">
               <button type="button" class="btn btn-secondary btn-sm" onclick="books.openBorrowModal('${b.id}', '${escape(b.title)}')">Mượn</button>
-              <button type="button" class="btn btn-danger btn-sm" onclick="books.handleDeleteBook('${b.id}')">Xóa</button>
+              <button type="button" class="btn btn-danger btn-sm" data-require-role="ADMIN" onclick="books.handleDeleteBook('${b.id}')">Xóa</button>
             </div>
           </td>
         </tr>
@@ -225,10 +225,15 @@ const books = {
             <div class="mobile-card-actions" onclick="event.stopPropagation()">
               <button type="button" class="btn btn-secondary btn-sm" onclick="books.openDetails('${b.id}')">Chi Tiết</button>
               <button type="button" class="btn btn-primary btn-sm" onclick="books.openBorrowModal('${b.id}', '${escape(b.title)}')">Mượn Sách</button>
-              <button type="button" class="btn btn-danger btn-sm" onclick="books.handleDeleteBook('${b.id}')">Xóa</button>
+              <button type="button" class="btn btn-danger btn-sm" data-require-role="ADMIN" onclick="books.handleDeleteBook('${b.id}')">Xóa</button>
             </div>
           </div>
         `).join('');
+      }
+
+      // Các nút vừa render chưa được áp quyền, phải gọi lại sau mỗi lần render.
+      if (window.auth?.applyRoleVisibility) {
+        auth.applyRoleVisibility(api.getCurrentUser()?.role);
       }
     } catch (err) {
       tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--color-danger); padding: 32px;">Lỗi tải kho sách: ${err.message}</td></tr>`;

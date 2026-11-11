@@ -309,15 +309,51 @@ const auth = {
       el.textContent = user.fullName || user.email;
     });
 
+    // Hiển thị đúng cả ba vai trò. Trước đây dùng
+    // `user.role === 'ADMIN' ? '...' : 'Thủ Thư'` nên tài khoản MEMBER đăng nhập
+    // vào trang quản trị bị gán nhãn sai là "Thủ Thư".
+    const ROLE_TEXT = {
+      ADMIN: 'Quản Trị Viên Cấp Cao',
+      LIBRARIAN: 'Thủ Thư',
+      MEMBER: 'Độc Giả',
+    };
     const roleEls = document.querySelectorAll('.current-user-role');
     roleEls.forEach((el) => {
-      el.textContent = user.role === 'ADMIN' ? 'Quản Trị Viên Cấp Cao' : 'Thủ Thư';
+      el.textContent = ROLE_TEXT[user.role] || user.role || 'Không xác định';
     });
 
     const avatarEls = document.querySelectorAll('.current-user-avatar');
     avatarEls.forEach((el) => {
       const letter = (user.fullName || user.email || 'A')[0].toUpperCase();
       el.textContent = letter;
+    });
+
+    this.applyRoleVisibility(user.role);
+  },
+
+  /**
+   * Ẩn các phần tử mà vai trò hiện tại không có quyền dùng, để người dùng không
+   * bấm vào rồi nhận lỗi 403. Đây chỉ là lớp trải nghiệm — chốt chặn thật sự
+   * nằm ở RolesGuard phía backend.
+   *
+   * Dùng bằng cách thêm `data-require-role="ADMIN"` hoặc
+   * `data-require-role="ADMIN,LIBRARIAN"` vào phần tử trong HTML.
+   */
+  applyRoleVisibility(role) {
+    document.querySelectorAll('[data-require-role]').forEach((el) => {
+      const allowed = (el.getAttribute('data-require-role') || '')
+        .split(',')
+        .map((r) => r.trim().toUpperCase())
+        .filter(Boolean);
+
+      const permitted = allowed.length === 0 || allowed.includes(String(role).toUpperCase());
+      el.style.display = permitted ? '' : 'none';
+
+      // Nếu đang mở tab bị ẩn thì chuyển về Bảng Thống Kê
+      if (!permitted && el.classList.contains('nav-link') && el.classList.contains('active')) {
+        const fallback = document.querySelector('.nav-link[data-tab="tab-dashboard"]');
+        if (fallback) fallback.click();
+      }
     });
   },
 };

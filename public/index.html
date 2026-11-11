@@ -175,6 +175,17 @@
           <span>Độc Giả & Thẻ</span>
         </a>
 
+        <div class="nav-category" data-require-role="ADMIN">Quản Trị Hệ Thống</div>
+        <a class="nav-link" data-tab="tab-users" data-require-role="ADMIN">
+          <span class="icon">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+              <path d="m17 11 2 2 4-4"/>
+            </svg>
+          </span>
+          <span>Tài Khoản &amp; Phân Quyền</span>
+        </a>
+
         <div class="nav-category">Liên Kết Kỹ Thuật</div>
         <a href="/api/docs" target="_blank" class="nav-link">
           <span class="icon">
@@ -352,7 +363,7 @@
               <p class="page-description">Quản lý danh mục đầu sách, số lượng tồn kho và vị trí giá kệ</p>
             </div>
             <div class="page-actions">
-              <button class="btn btn-primary" data-open-modal="modal-new-book">
+              <button class="btn btn-primary" data-require-role="ADMIN,LIBRARIAN" data-open-modal="modal-new-book">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M5 12h14"/><path d="M12 5v14"/>
                 </svg>
@@ -407,7 +418,7 @@
               <p class="page-description">Theo dõi hạn trả sách, kiểm soát quá hạn và tự động tính tiền phạt</p>
             </div>
             <div class="page-actions">
-              <button class="btn btn-primary" data-open-modal="modal-new-borrow">
+              <button class="btn btn-primary" data-require-role="ADMIN,LIBRARIAN" data-open-modal="modal-new-borrow">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M5 12h14"/><path d="M12 5v14"/>
                 </svg>
@@ -447,7 +458,7 @@
               <p class="page-description">Quản lý thẻ thành viên, số lượng sách được phép mượn và hạn sử dụng thẻ</p>
             </div>
             <div class="page-actions">
-              <button class="btn btn-primary" data-open-modal="modal-new-member">
+              <button class="btn btn-primary" data-require-role="ADMIN,LIBRARIAN" data-open-modal="modal-new-member">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M5 12h14"/><path d="M12 5v14"/>
                 </svg>
@@ -476,6 +487,63 @@
           </div>
           <!-- Mobile Card List View -->
           <div id="members-card-list" class="mobile-card-list"></div>
+        </div>
+
+        <!-- ================================================================= -->
+        <!-- TAB: Tài Khoản & Phân Quyền (chỉ ADMIN)                           -->
+        <!-- ================================================================= -->
+        <div id="tab-users" class="tab-pane">
+          <div class="page-header">
+            <div>
+              <h2 class="page-title">Tài Khoản &amp; Phân Quyền</h2>
+              <p class="page-description">
+                Nâng độc giả lên thủ thư, khóa hoặc mở lại tài khoản đăng nhập.
+                Đây là tài khoản đăng nhập, khác với thẻ độc giả ở mục "Độc Giả &amp; Thẻ".
+              </p>
+            </div>
+            <div class="page-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <input
+                type="text"
+                id="users-search"
+                class="form-input"
+                placeholder="Tìm theo email, SĐT, họ tên..."
+                style="min-width: 220px;" />
+              <select id="users-filter-role" class="form-input" style="width: auto; min-width: 150px;">
+                <option value="">Tất cả vai trò</option>
+                <option value="ADMIN">Quản Trị Viên</option>
+                <option value="LIBRARIAN">Thủ Thư</option>
+                <option value="MEMBER">Độc Giả</option>
+              </select>
+            </div>
+          </div>
+
+          <div
+            style="padding: 12px 16px; margin-bottom: 16px; border-radius: 8px;
+                   background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.25);
+                   font-size: 0.8125rem; color: var(--text-secondary);">
+            Sau khi đổi vai trò, người đó cần <strong>đăng xuất và đăng nhập lại</strong> để quyền mới
+            có hiệu lực, vì vai trò được nhúng trong token đăng nhập (hiệu lực 24 giờ).
+            Chỉ những người <strong>đã có tài khoản đăng nhập</strong> mới xuất hiện ở đây — độc giả
+            chỉ được cấp thẻ mà chưa đăng ký tài khoản sẽ không có trong danh sách.
+          </div>
+
+          <div class="table-responsive table-desktop-view">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Tài Khoản</th>
+                  <th>Liên Hệ</th>
+                  <th>Vai Trò</th>
+                  <th>Trạng Thái</th>
+                  <th>Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody id="users-tbody">
+                <tr><td colspan="5" style="text-align: center; padding: 32px; color: var(--text-muted);">Đang tải danh sách tài khoản...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div id="users-card-list" class="mobile-card-list"></div>
         </div>
       </main>
     </div>
@@ -798,7 +866,7 @@
         </button>
       </div>
       <div class="modal-body">
-        <p id="confirm-modal-message" style="font-size: 0.9375rem; color: var(--text-secondary); line-height: 1.5; margin: 0;">
+        <p id="confirm-modal-message" style="font-size: 0.9375rem; color: var(--text-secondary); line-height: 1.5; margin: 0; white-space: pre-line;">
           Bạn có chắc chắn muốn thực hiện hành động này?
         </p>
       </div>
@@ -819,6 +887,7 @@
   <script src="/js/books.js"></script>
   <script src="/js/borrowings.js"></script>
   <script src="/js/members.js"></script>
+  <script src="/js/users.js"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/app.js"></script>
 </body>

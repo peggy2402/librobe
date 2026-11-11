@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
   books.init();
   borrowings.init();
   members.init();
+  users.init();
 
   // 3. Xử lý chuyển đổi Tab Navigation
   const navLinks = document.querySelectorAll('.nav-link[data-tab]');
@@ -40,6 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (targetTabId === 'tab-books') books.loadBooks();
       if (targetTabId === 'tab-borrowings') borrowings.loadBorrowings();
       if (targetTabId === 'tab-members') members.loadMembers();
+      if (targetTabId === 'tab-users') users.loadUsers();
 
       // Close mobile drawer if open
       closeMobileSidebar();
