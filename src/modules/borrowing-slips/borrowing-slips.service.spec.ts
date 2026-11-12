@@ -24,6 +24,9 @@ const memberActor = {
   memberId: 'mem-01',
 };
 
+/** Thủ thư thực hiện thao tác, lấy từ JWT trong thực tế. */
+const ACTOR = { id: 'user-02', email: 'thuthu@librobe.vn' };
+
 describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => {
   let service: BorrowingSlipsService;
   let prismaMock: any;
@@ -321,8 +324,16 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
         },
       ]);
 
-      await service.approve('slip-01', 'thuthu@librobe.vn');
+      await service.approve('slip-01', ACTOR);
 
+      expect(prismaMock.borrowingSlip.updateMany).toHaveBeenCalledWith({
+        where: { id: 'slip-01', status: BorrowingSlipStatus.PENDING_APPROVAL },
+        data: expect.objectContaining({
+          approvedBy: ACTOR.email,
+          approvedById: ACTOR.id,
+          approvedAt: expect.any(Date),
+        }),
+      });
       expect(prismaMock.book.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
@@ -348,7 +359,7 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
         items: [],
       });
 
-      await expect(service.approve('slip-01')).rejects.toThrow(
+      await expect(service.approve('slip-01', ACTOR)).rejects.toThrow(
         ConflictException,
       );
       expect(prismaMock.book.updateMany).not.toHaveBeenCalled();
@@ -365,11 +376,90 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
       ]);
       prismaMock.book.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.approve('slip-01')).rejects.toThrow(
+      await expect(service.approve('slip-01', ACTOR)).rejects.toThrow(
         ConflictException,
       );
       expect(prismaMock.member.update).not.toHaveBeenCalled();
     });
+  });
+
+  describe('Audit và chống xử lý đồng thời khi từ chối/hủy phiếu', () => {
+    it.each(['reject', 'cancel'] as const)(
+      '%s ghi người xử lý từ JWT và lý do đã trim, không thay đổi kho phiếu chờ duyệt',
+      async (action) => {
+        const isReject = action === 'reject';
+        const status = isReject
+          ? BorrowingSlipStatus.REJECTED
+          : BorrowingSlipStatus.CANCELLED;
+        const prefix = isReject ? 'rejected' : 'cancelled';
+        prismaMock.borrowingSlip.findUnique.mockResolvedValue({
+          id: 'slip-01',
+          status: BorrowingSlipStatus.PENDING_APPROVAL,
+          items: [],
+        });
+        prismaMock.borrowingSlip.findUniqueOrThrow.mockResolvedValue({
+          id: 'slip-01',
+          status,
+          items: [],
+          [`${prefix}By`]: ACTOR.email,
+          [`${prefix}ById`]: ACTOR.id,
+        });
+
+        const result = await service[action](
+          'slip-01',
+          { reason: '  Lý do  ' },
+          ACTOR,
+        );
+
+        expect(prismaMock.borrowingSlip.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: 'slip-01',
+            status: BorrowingSlipStatus.PENDING_APPROVAL,
+          },
+          data: expect.objectContaining({
+            status,
+            [`${prefix}By`]: ACTOR.email,
+            [`${prefix}ById`]: ACTOR.id,
+            [`${prefix}At`]: expect.any(Date),
+            [isReject ? 'rejectReason' : 'cancelReason']: 'Lý do',
+          }),
+        });
+        expect(result).toMatchObject({
+          [`${prefix}By`]: ACTOR.email,
+          [`${prefix}ById`]: ACTOR.id,
+        });
+        expect(prismaMock.book.updateMany).not.toHaveBeenCalled();
+        expect(prismaMock.$executeRaw).not.toHaveBeenCalled();
+        expect(prismaMock.member.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['approve', 'reject', 'cancel'] as const)(
+      '%s thua tranh chấp trạng thái -> 409 trước khi sửa dòng sách hoặc tồn kho',
+      async (action) => {
+        prismaMock.borrowingSlip.findUnique.mockResolvedValue({
+          id: 'slip-01',
+          status: BorrowingSlipStatus.PENDING_APPROVAL,
+          memberId: 'mem-01',
+          items: [{ id: 'item-01', bookId: 'book-01', quantity: 1 }],
+        });
+        prismaMock.borrowingSlip.updateMany.mockResolvedValue({ count: 0 });
+
+        const operation =
+          action === 'approve'
+            ? service.approve('slip-01', ACTOR)
+            : service[action]('slip-01', { reason: 'Lý do' }, ACTOR);
+
+        await expect(operation).rejects.toThrow(ConflictException);
+        expect(prismaMock.borrowingSlipItem.updateMany).not.toHaveBeenCalled();
+        expect(prismaMock.book.updateMany).not.toHaveBeenCalled();
+        expect(prismaMock.$executeRaw).not.toHaveBeenCalled();
+        expect(prismaMock.member.update).not.toHaveBeenCalled();
+        expect(
+          prismaMock.borrowingSlip.findUniqueOrThrow,
+        ).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('Tình huống 4 - Trả sách từng phần, tính phạt & bồi thường', () => {

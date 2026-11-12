@@ -92,15 +92,31 @@ const auth = {
       if (authWrapper) authWrapper.style.display = 'none';
       if (appLayout) appLayout.style.display = 'flex';
 
-      // Load initial dashboard data
-      if (window.stats) window.stats.loadOverview();
-      if (window.books) window.books.loadBooks();
+      this.loadInitialData();
     } catch {
       api.setToken(null);
       api.setCurrentUser(null);
       if (authWrapper) authWrapper.style.display = 'flex';
       if (appLayout) appLayout.style.display = 'none';
     }
+  },
+
+  /**
+   * Nạp toàn bộ dữ liệu khởi đầu của dashboard.
+   *
+   * Chỉ được gọi SAU KHI xác thực thành công. Trước đây các lời gọi này nằm
+   * trong `books.init()` / `borrowings.init()` và chạy ngay lúc
+   * DOMContentLoaded — khi khách chưa đăng nhập, chúng nhận 401 và kích hoạt
+   * `window.location.reload()` trong `api.request`, gây vòng lặp tải vô hạn.
+   */
+  loadInitialData() {
+    if (window.stats) window.stats.loadOverview();
+    if (window.books) {
+      window.books.loadBooks();
+      window.books.loadCategoriesSelect();
+      window.books.loadAuthorsSelect();
+    }
+    if (window.borrowings) window.borrowings.loadMembersSelect();
   },
 
   showAuthForm(formName) {
@@ -259,9 +275,7 @@ const auth = {
       if (authWrapper) authWrapper.style.display = 'none';
       if (appLayout) appLayout.style.display = 'flex';
 
-      // Trigger data loads
-      if (window.stats) window.stats.loadOverview();
-      if (window.books) window.books.loadBooks();
+      this.loadInitialData();
     } catch (err) {
       const errorMsg = err.message || 'Tài khoản hoặc mật khẩu không chính xác';
       
@@ -309,15 +323,51 @@ const auth = {
       el.textContent = user.fullName || user.email;
     });
 
+    // Hiển thị đúng cả ba vai trò. Trước đây dùng
+    // `user.role === 'ADMIN' ? '...' : 'Thủ Thư'` nên tài khoản MEMBER đăng nhập
+    // vào trang quản trị bị gán nhãn sai là "Thủ Thư".
+    const ROLE_TEXT = {
+      ADMIN: 'Quản Trị Viên Cấp Cao',
+      LIBRARIAN: 'Thủ Thư',
+      MEMBER: 'Độc Giả',
+    };
     const roleEls = document.querySelectorAll('.current-user-role');
     roleEls.forEach((el) => {
-      el.textContent = user.role === 'ADMIN' ? 'Quản Trị Viên Cấp Cao' : 'Thủ Thư';
+      el.textContent = ROLE_TEXT[user.role] || user.role || 'Không xác định';
     });
 
     const avatarEls = document.querySelectorAll('.current-user-avatar');
     avatarEls.forEach((el) => {
       const letter = (user.fullName || user.email || 'A')[0].toUpperCase();
       el.textContent = letter;
+    });
+
+    this.applyRoleVisibility(user.role);
+  },
+
+  /**
+   * Ẩn các phần tử mà vai trò hiện tại không có quyền dùng, để người dùng không
+   * bấm vào rồi nhận lỗi 403. Đây chỉ là lớp trải nghiệm — chốt chặn thật sự
+   * nằm ở RolesGuard phía backend.
+   *
+   * Dùng bằng cách thêm `data-require-role="ADMIN"` hoặc
+   * `data-require-role="ADMIN,LIBRARIAN"` vào phần tử trong HTML.
+   */
+  applyRoleVisibility(role) {
+    document.querySelectorAll('[data-require-role]').forEach((el) => {
+      const allowed = (el.getAttribute('data-require-role') || '')
+        .split(',')
+        .map((r) => r.trim().toUpperCase())
+        .filter(Boolean);
+
+      const permitted = allowed.length === 0 || allowed.includes(String(role).toUpperCase());
+      el.style.display = permitted ? '' : 'none';
+
+      // Nếu đang mở tab bị ẩn thì chuyển về Bảng Thống Kê
+      if (!permitted && el.classList.contains('nav-link') && el.classList.contains('active')) {
+        const fallback = document.querySelector('.nav-link[data-tab="tab-dashboard"]');
+        if (fallback) fallback.click();
+      }
     });
   },
 };

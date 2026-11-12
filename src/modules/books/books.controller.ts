@@ -9,8 +9,10 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
@@ -18,8 +20,15 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiForbiddenResponse,
   ApiTags,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { UserRole } from '../../common/enums/user-role.enum.js';
+import { Roles } from '../auth/decorators/roles.decorator.js';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../auth/guards/roles.guard.js';
+
 import { BooksService } from './books.service.js';
 import { CreateBookDto } from './dto/create-book.dto.js';
 import { FilterBookDto } from './dto/filter-book.dto.js';
@@ -27,7 +36,11 @@ import { UpdateBookDto } from './dto/update-book.dto.js';
 import { Book } from './entities/book.entity.js';
 
 @ApiTags('Books - Quản lý Sách & Kho Thư Viện')
+@ApiBearerAuth('JWT-auth')
+@ApiUnauthorizedResponse({ description: 'Thiếu Bearer Token hoặc Token không hợp lệ/hết hạn' })
+@ApiForbiddenResponse({ description: 'Tài khoản không có vai trò phù hợp để thực hiện thao tác này' })
 @Controller('books')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class BooksController {
   constructor(private readonly booksService: BooksService) {}
 
@@ -118,6 +131,7 @@ export class BooksController {
     return this.booksService.findOne(id);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -139,6 +153,7 @@ export class BooksController {
     return this.booksService.create(dto);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Patch(':id')
   @ApiOperation({
     summary: 'Cập nhật thông tin cuốn sách',
@@ -163,6 +178,7 @@ export class BooksController {
     return this.booksService.update(id, dto);
   }
 
+  @Roles(UserRole.ADMIN)
   @Delete(':id')
   @ApiOperation({
     summary: 'Xóa cuốn sách khỏi hệ thống thư viện',

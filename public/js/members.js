@@ -62,7 +62,7 @@ const members = {
             </div>
           </td>
           <td>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="members.handleDelete('${m.id}')">Xóa</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-require-role="ADMIN" onclick="members.handleDelete('${m.id}')">Xóa</button>
           </td>
         </tr>
       `).join('');
@@ -105,10 +105,13 @@ const members = {
             </div>
 
             <div class="mobile-card-actions">
-              <button type="button" class="btn btn-danger btn-sm" onclick="members.handleDelete('${m.id}')">Xóa Hồ Sơ</button>
+              <button type="button" class="btn btn-danger btn-sm" data-require-role="ADMIN" onclick="members.handleDelete('${m.id}')">Xóa Hồ Sơ</button>
             </div>
           </div>
         `).join('');
+      }
+      if (window.auth?.applyRoleVisibility) {
+        auth.applyRoleVisibility(api.getCurrentUser()?.role);
       }
     } catch (err) {
       tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--color-danger); padding: 32px;">Lỗi tải độc giả: ${err.message}</td></tr>`;

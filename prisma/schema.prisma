@@ -82,9 +82,14 @@ model User {
   memberId  String?  @unique @map("member_id")
   member    Member?  @relation(fields: [memberId], references: [id], onDelete: SetNull)
   passwordResetTokens PasswordResetToken[]
+  /// Vết audit: các chứng từ do tài khoản này phê duyệt / từ chối / hủy
+  slipsApproved  BorrowingSlip[] @relation("SlipApprovedBy")
+  slipsRejected  BorrowingSlip[] @relation("SlipRejectedBy")
+  slipsCancelled BorrowingSlip[] @relation("SlipCancelledBy")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  @@index([role])
   @@map("users")
 }
 
@@ -209,10 +214,21 @@ model BorrowingSlip {
   borrowDate   DateTime?           @map("borrow_date")
   dueDate      DateTime            @map("due_date")
   approvedAt   DateTime?           @map("approved_at")
+  /// Email người phê duyệt — giữ nguyên để không phá vỡ API hiện tại
   approvedBy   String?             @map("approved_by")
+  /// Khóa ngoại tới users.id, truy ngược được dù người đó đổi email.
+  /// onDelete: SetNull để xóa tài khoản không làm mất lịch sử chứng từ.
+  approvedById String?             @map("approved_by_id")
+  approvedByUser User?             @relation("SlipApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
   rejectedAt   DateTime?           @map("rejected_at")
+  rejectedBy   String?             @map("rejected_by")
+  rejectedById String?             @map("rejected_by_id")
+  rejectedByUser User?             @relation("SlipRejectedBy", fields: [rejectedById], references: [id], onDelete: SetNull)
   rejectReason String?             @map("reject_reason")
   cancelledAt  DateTime?           @map("cancelled_at")
+  cancelledBy  String?             @map("cancelled_by")
+  cancelledById String?            @map("cancelled_by_id")
+  cancelledByUser User?            @relation("SlipCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
   cancelReason String?             @map("cancel_reason")
   notes        String?
   totalFine    Float               @default(0) @map("total_fine")

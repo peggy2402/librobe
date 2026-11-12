@@ -2,12 +2,14 @@ import 'reflect-metadata';
 import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AllExceptionsFilter } from '../../common/filters/http-exception.filter.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { BorrowingSlipsController } from '../borrowing-slips/borrowing-slips.controller.js';
 import { BorrowingSlipsService } from '../borrowing-slips/borrowing-slips.service.js';
 import { BorrowingsController } from '../borrowings/borrowings.controller.js';
@@ -54,7 +56,13 @@ describe('Renewal HTTP authorization and detail contract', () => {
           .fn()
           .mockImplementation(({ where }: { where: { id: string } }) => ({
             id: where.id,
-            role: 'MEMBER',
+            role:
+              where.id === 'admin'
+                ? 'ADMIN'
+                : where.id === 'librarian'
+                  ? 'LIBRARIAN'
+                  : 'MEMBER',
+            email: `${where.id}@library.test`,
             isActive: true,
             memberId:
               where.id === 'owner'
@@ -106,6 +114,7 @@ describe('Renewal HTTP authorization and detail contract', () => {
       [BorrowingSlipsService],
       BorrowingSlipsController,
     );
+    Reflect.defineMetadata('design:paramtypes', [Reflector], RolesGuard);
     const module = await Test.createTestingModule({
       controllers: [BorrowingsController, BorrowingSlipsController],
       providers: [
@@ -145,6 +154,7 @@ describe('Renewal HTTP authorization and detail contract', () => {
 
   afterEach(async () => {
     await app?.close();
+    vi.restoreAllMocks();
   });
 
   describe.each([
@@ -182,6 +192,22 @@ describe('Renewal HTTP authorization and detail contract', () => {
         }),
       );
     });
+
+    it.each(['admin', 'librarian'])(
+      'allows %s to renew another member loan',
+      async (sub) => {
+        await request(app.getHttpServer())
+          [method](`${path}/renew`)
+          .auth(jwt.sign({ sub, role: 'MEMBER' }), { type: 'bearer' })
+          .send({ renewedBy: 'forged' })
+          .expect(200);
+        expect(prisma.loanRenewal.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ renewedBy: sub }),
+          }),
+        );
+      },
+    );
 
     it.each(['other', 'unlinked'])(
       'rejects %s MEMBER even with forged JWT claims and body identity',
@@ -226,6 +252,130 @@ describe('Renewal HTTP authorization and detail contract', () => {
       expect(result.body.message).toBe(detail.body.message);
     });
   });
+
+  describe.each([
+    {
+      path: '/api/borrowing-slips/slip-01/approve',
+      method: 'patch' as const,
+      service: BorrowingSlipsService,
+      action: 'approve' as const,
+      body: {},
+      audit: true,
+    },
+    {
+      path: '/api/borrowing-slips/slip-01/reject',
+      method: 'patch' as const,
+      service: BorrowingSlipsService,
+      action: 'reject' as const,
+      body: { reason: 'Rejected' },
+      audit: true,
+    },
+    {
+      path: '/api/borrowing-slips/slip-01/cancel',
+      method: 'patch' as const,
+      service: BorrowingSlipsService,
+      action: 'cancel' as const,
+      body: { reason: 'Cancelled' },
+      audit: true,
+    },
+    {
+      path: '/api/borrowing-slips/slip-01/return-items',
+      method: 'post' as const,
+      service: BorrowingSlipsService,
+      action: 'returnItems' as const,
+      body: { items: [{ itemId: 'item-01', returnCondition: 'GOOD' }] },
+      audit: false,
+    },
+    {
+      path: '/api/borrowing-slips/slip-01/pay-fine',
+      method: 'post' as const,
+      service: BorrowingSlipsService,
+      action: 'payFine' as const,
+      body: {},
+      audit: false,
+    },
+    {
+      path: '/api/borrowings/loan-01/return',
+      method: 'post' as const,
+      service: BorrowingsService,
+      action: 'returnBook' as const,
+      body: {},
+      audit: false,
+    },
+    {
+      path: '/api/borrowings/loan-01/pay-fine',
+      method: 'post' as const,
+      service: BorrowingsService,
+      action: 'payFine' as const,
+      body: {},
+      audit: false,
+    },
+  ])(
+    'staff operation $method $path',
+    ({ path, method, service, action, body, audit }) => {
+      function mockOperation() {
+        const instance = app.get(service);
+        return vi
+          .spyOn(instance as any, action)
+          .mockResolvedValue({ id: path.split('/')[3] });
+      }
+
+      it('rejects MEMBER before invoking the service despite forged staff identity', async () => {
+        const operation = mockOperation();
+        await request(app.getHttpServer())
+          [method](path)
+          .auth(
+            jwt.sign({
+              sub: 'owner',
+              role: 'ADMIN',
+              email: 'admin@library.test',
+            }),
+            { type: 'bearer' },
+          )
+          .send({
+            ...body,
+            role: 'ADMIN',
+            approvedBy: 'admin',
+            rejectedBy: 'admin',
+            cancelledBy: 'admin',
+          })
+          .expect(403);
+        expect(operation).not.toHaveBeenCalled();
+      });
+
+      it.each(['admin', 'librarian'])(
+        'allows database %s role and forwards trusted audit identity',
+        async (sub) => {
+          const operation = mockOperation();
+          await request(app.getHttpServer())
+            [method](path)
+            .auth(
+              jwt.sign({ sub, role: 'MEMBER', email: 'forged@library.test' }),
+              { type: 'bearer' },
+            )
+            .send({
+              ...body,
+              actor: { id: 'forged' },
+              approvedBy: 'forged',
+              rejectedBy: 'forged',
+              cancelledBy: 'forged',
+            })
+            .expect(200);
+          expect(operation).toHaveBeenCalledTimes(1);
+          expect(operation.mock.calls[0][0]).toBe(path.split('/')[3]);
+          if (audit) {
+            expect(operation.mock.calls[0].at(-1)).toEqual({
+              id: sub,
+              role: sub === 'admin' ? 'ADMIN' : 'LIBRARIAN',
+              email: `${sub}@library.test`,
+              isActive: true,
+              memberId: 'mem-other',
+            });
+          }
+        },
+      );
+    },
+  );
 
   it('documents eligibility fields on both detail response schemas', () => {
     const document = SwaggerModule.createDocument(

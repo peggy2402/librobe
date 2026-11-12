@@ -35,6 +35,16 @@ import {
   BorrowingSlipItemEntity,
 } from './entities/borrowing-slip.entity.js';
 
+/**
+ * Người thực hiện thao tác trên chứng từ, lấy từ JWT (`request.user`).
+ * Lưu cả `email` (hiển thị, giữ tương thích API cũ) và `id` (khóa ngoại tới
+ * `users`, truy ngược được dù người đó đổi email sau này).
+ */
+export interface SlipActor {
+  id: string;
+  email: string;
+}
+
 @Injectable()
 export class BorrowingSlipsService {
   constructor(
@@ -183,7 +193,10 @@ export class BorrowingSlipsService {
       const bookIds = consolidatedItems.map((i) => i.bookId);
       const books = await tx.book.findMany({ where: { id: { in: bookIds } } });
 
-      if (books.length < bookIds.length || !bookIds.every((id) => books.some((b) => b.id === id))) {
+      if (
+        books.length < bookIds.length ||
+        !bookIds.every((id) => books.some((b) => b.id === id))
+      ) {
         throw new NotFoundException(
           'Một hoặc nhiều cuốn sách trong danh sách yêu cầu không tồn tại trong thư viện',
         );
@@ -248,10 +261,7 @@ export class BorrowingSlipsService {
    *  - trừ kho bằng atomic conditional update -> chỉ một phiếu giành được bản
    *    sách cuối cùng, phiếu còn lại nhận 409 và rollback toàn bộ.
    */
-  async approve(
-    id: string,
-    approvedBy = 'Librarian',
-  ): Promise<BorrowingSlipEntity> {
+  async approve(id: string, actor: SlipActor): Promise<BorrowingSlipEntity> {
     const now = new Date();
 
     const updatedSlip = await this.prisma.$transaction(async (tx) => {
@@ -277,7 +287,8 @@ export class BorrowingSlipsService {
           status: BorrowingSlipStatus.BORROWED,
           borrowDate: now,
           approvedAt: now,
-          approvedBy,
+          approvedBy: actor.email,
+          approvedById: actor.id,
         },
       });
 
@@ -331,39 +342,53 @@ export class BorrowingSlipsService {
   async reject(
     id: string,
     dto: RejectBorrowingSlipDto,
+    actor: SlipActor,
   ): Promise<BorrowingSlipEntity> {
-    const slip = await this.prisma.borrowingSlip.findUnique({
-      where: { id },
-      select: { status: true },
-    });
-    if (!slip) {
-      throw new NotFoundException(`Không tìm thấy phiếu mượn với ID "${id}"`);
-    }
     const now = new Date();
 
-    if (slip.status !== BorrowingSlipStatus.PENDING_APPROVAL) {
-      throw new ConflictException(
-        `DOCUMENT_ALREADY_PROCESSED: Không thể từ chối phiếu mượn đang ở trạng thái "${slip.status}"`,
-      );
-    }
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const slip = await tx.borrowingSlip.findUnique({
+        where: { id },
+        select: { status: true },
+      });
 
-    const updated = await this.prisma.borrowingSlip.update({
-      where: { id },
-      data: {
-        status: BorrowingSlipStatus.REJECTED,
-        rejectedAt: now,
-        rejectReason: dto.reason.trim(),
-        items: {
-          updateMany: {
-            where: { slipId: id },
-            data: { status: BorrowingItemStatus.CANCELLED },
-          },
+      if (!slip) {
+        throw new NotFoundException(`Không tìm thấy phiếu mượn với ID "${id}"`);
+      }
+
+      if (slip.status !== BorrowingSlipStatus.PENDING_APPROVAL) {
+        throw new ConflictException(
+          `DOCUMENT_ALREADY_PROCESSED: Không thể từ chối phiếu mượn đang ở trạng thái "${slip.status}"`,
+        );
+      }
+
+      // Chốt trạng thái atomic -> hai request từ chối đồng thời chỉ một thành công.
+      const claimed = await tx.borrowingSlip.updateMany({
+        where: { id, status: BorrowingSlipStatus.PENDING_APPROVAL },
+        data: {
+          status: BorrowingSlipStatus.REJECTED,
+          rejectedAt: now,
+          rejectedBy: actor.email,
+          rejectedById: actor.id,
+          rejectReason: dto.reason.trim(),
         },
-      },
-      include: {
-        member: true,
-        items: { include: { book: true } },
-      },
+      });
+
+      if (claimed.count === 0) {
+        throw new ConflictException(
+          'DOCUMENT_ALREADY_PROCESSED: Phiếu mượn vừa được xử lý bởi một giao dịch khác',
+        );
+      }
+
+      await tx.borrowingSlipItem.updateMany({
+        where: { slipId: id },
+        data: { status: BorrowingItemStatus.CANCELLED },
+      });
+
+      return tx.borrowingSlip.findUniqueOrThrow({
+        where: { id },
+        include: { member: true, items: { include: { book: true } } },
+      });
     });
 
     return this.mapSlipToEntity(updated);
@@ -372,6 +397,7 @@ export class BorrowingSlipsService {
   async cancel(
     id: string,
     dto: CancelBorrowingSlipDto,
+    actor: SlipActor,
   ): Promise<BorrowingSlipEntity> {
     const now = new Date();
     const closedStatuses: string[] = [
@@ -408,6 +434,8 @@ export class BorrowingSlipsService {
         data: {
           status: BorrowingSlipStatus.CANCELLED,
           cancelledAt: now,
+          cancelledBy: actor.email,
+          cancelledById: actor.id,
           cancelReason: dto.reason.trim(),
         },
       });
@@ -420,7 +448,8 @@ export class BorrowingSlipsService {
 
       const activeItems = slip.items.filter(
         (it) =>
-          it.status === BorrowingItemStatus.PENDING || it.status === BorrowingItemStatus.BORROWING,
+          it.status === BorrowingItemStatus.PENDING ||
+          it.status === BorrowingItemStatus.BORROWING,
       );
 
       await tx.borrowingSlipItem.updateMany({
@@ -526,7 +555,8 @@ export class BorrowingSlipsService {
         }
 
         const bookTitle = item.book?.title ?? item.bookId;
-        const remainingInItem = item.quantity - item.returnedQuantity - item.lostQuantity;
+        const remainingInItem =
+          item.quantity - item.returnedQuantity - item.lostQuantity;
         if (remainingInItem <= 0) {
           throw new BadRequestException(
             `Sách "${bookTitle}" đã được hoàn tất trước đó`,
@@ -544,9 +574,12 @@ export class BorrowingSlipsService {
         processedMap.set(item.id, processQty);
         totalProcessedQty += processQty;
 
-        const itemLateFee = daysLate * this.policy.finePerDayPerBook * processQty;
+        const itemLateFee =
+          daysLate * this.policy.finePerDayPerBook * processQty;
         const itemCompensation =
-          reqItem.returnCondition === ReturnCondition.LOST ? item.bookPrice * processQty : 0;
+          reqItem.returnCondition === ReturnCondition.LOST
+            ? item.bookPrice * processQty
+            : 0;
 
         batchLateFee += itemLateFee;
         batchCompensation += itemCompensation;
@@ -620,7 +653,12 @@ export class BorrowingSlipsService {
       const newTotalFine = slip.totalFine + batchFine;
       const paidNow = dto.isPaidNow ?? false;
       // Chỉ coi là đã thanh toán khi không còn khoản phạt nào chưa thu.
-      const fineSettled = newTotalFine <= 0 ? true : slip.finePaid && batchFine === 0 ? true : paidNow;
+      const fineSettled =
+        newTotalFine <= 0
+          ? true
+          : slip.finePaid && batchFine === 0
+            ? true
+            : paidNow;
 
       await tx.borrowingSlip.update({
         where: { id },
@@ -811,7 +849,9 @@ export class BorrowingSlipsService {
       select: { slipNumber: true },
     });
 
-    const lastSequence = last ? Number.parseInt(last.slipNumber.slice(prefix.length), 10) : 0;
+    const lastSequence = last
+      ? Number.parseInt(last.slipNumber.slice(prefix.length), 10)
+      : 0;
     const nextSequence = Number.isFinite(lastSequence) ? lastSequence + 1 : 1;
 
     return `${prefix}${nextSequence.toString().padStart(4, '0')}`;
@@ -829,7 +869,14 @@ export class BorrowingSlipsService {
       dueDate: s.dueDate,
       approvedAt: s.approvedAt || undefined,
       approvedBy: s.approvedBy || undefined,
+      approvedById: s.approvedById || undefined,
+      rejectedAt: s.rejectedAt || undefined,
+      rejectedBy: s.rejectedBy || undefined,
+      rejectedById: s.rejectedById || undefined,
       rejectReason: s.rejectReason || undefined,
+      cancelledAt: s.cancelledAt || undefined,
+      cancelledBy: s.cancelledBy || undefined,
+      cancelledById: s.cancelledById || undefined,
       cancelReason: s.cancelReason || undefined,
       notes: s.notes || undefined,
       totalFine: s.totalFine,

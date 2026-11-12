@@ -52,10 +52,24 @@ const api = {
       });
 
       if (response.status === 401 && !endpoint.includes('/auth/login')) {
+        // Chỉ tải lại trang khi phiên đăng nhập THẬT SỰ hết hạn, tức là lúc gọi
+        // API có mang token nhưng server từ chối.
+        //
+        // Nếu không có token thì 401 là chuyện bình thường (khách chưa đăng
+        // nhập), tải lại trang chẳng giải quyết gì mà còn gây vòng lặp tải vô
+        // hạn: load -> gọi API -> 401 -> reload -> gọi API -> 401 -> ...
+        const hadToken = Boolean(this.getToken());
         this.setToken(null);
         this.setCurrentUser(null);
-        window.location.reload();
-        throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+
+        if (hadToken) {
+          // Token đã bị xóa ở trên, nên lần tải lại sau sẽ đi vào nhánh
+          // "không có token" và dừng, không lặp tiếp.
+          window.location.reload();
+          throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+        }
+
+        throw new Error('Bạn cần đăng nhập để sử dụng chức năng này.');
       }
 
       const data = await response.json().catch(() => ({}));

@@ -1,10 +1,16 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { UserRole } from '../../common/enums/user-role.enum.js';
+import { Roles } from '../auth/decorators/roles.decorator.js';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { LibraryStatsDto } from './dto/library-stats.dto.js';
 import { StatsService } from './stats.service.js';
 
 @ApiTags('Dashboard & Statistics - Thống kê Báo cáo')
 @Controller('stats')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
 export class StatsController {
   constructor(private readonly statsService: StatsService) {}
 

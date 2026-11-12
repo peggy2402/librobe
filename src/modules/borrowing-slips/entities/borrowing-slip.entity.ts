@@ -170,15 +170,39 @@ export class BorrowingSlipEntity {
   approvedAt?: Date;
 
   @ApiPropertyOptional({
-    description: 'Người phê duyệt',
+    description: 'Email người phê duyệt',
     example: 'admin@librobe.vn',
   })
   approvedBy?: string;
 
   @ApiPropertyOptional({
+    description: 'ID tài khoản người phê duyệt (khóa ngoại tới users, phục vụ truy vết audit)',
+    example: 'user-02',
+  })
+  approvedById?: string;
+
+  @ApiPropertyOptional({ description: 'Thời điểm từ chối phiếu' })
+  rejectedAt?: Date;
+
+  @ApiPropertyOptional({ description: 'Email người từ chối phiếu' })
+  rejectedBy?: string;
+
+  @ApiPropertyOptional({ description: 'ID tài khoản người từ chối phiếu' })
+  rejectedById?: string;
+
+  @ApiPropertyOptional({
     description: 'Lý do từ chối phiếu (nếu có)',
   })
   rejectReason?: string;
+
+  @ApiPropertyOptional({ description: 'Thời điểm hủy phiếu' })
+  cancelledAt?: Date;
+
+  @ApiPropertyOptional({ description: 'Email người hủy phiếu' })
+  cancelledBy?: string;
+
+  @ApiPropertyOptional({ description: 'ID tài khoản người hủy phiếu' })
+  cancelledById?: string;
 
   @ApiPropertyOptional({
     description: 'Lý do hủy phiếu (nếu có)',

@@ -13,6 +13,7 @@ import { MembersModule } from './modules/members/members.module.js';
 import { PrismaModule } from './modules/prisma/prisma.module.js';
 import { ReservationsModule } from './modules/reservations/reservations.module.js';
 import { StatsModule } from './modules/stats/stats.module.js';
+import { UsersModule } from './modules/users/users.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -32,6 +33,7 @@ const hasObserveKey = Boolean(process.env.OBSERVE_APP_KEY && process.env.OBSERVE
     PrismaModule,
     LoanPolicyModule,
     AuthModule,
+    UsersModule,
     CategoriesModule,
     AuthorsModule,
     BooksModule,

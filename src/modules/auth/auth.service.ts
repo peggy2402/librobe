@@ -149,10 +149,13 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(dto.password, salt);
 
     const now = new Date();
-    const role = (dto.role as any) ?? UserRole.MEMBER;
+    // Vai trò KHÔNG lấy từ dữ liệu client gửi lên. Đăng ký công khai luôn tạo
+    // tài khoản MEMBER; nâng lên LIBRARIAN/ADMIN là việc của ADMIN qua
+    // `PATCH /api/users/:id/role`.
+    const role = UserRole.MEMBER;
     let memberId: string | undefined;
 
-    // 4. Nếu người dùng đăng ký vai trò Độc giả (MEMBER), tự động liên kết hoặc tạo thẻ thư viện
+    // 4. Người dùng đăng ký là Độc giả (MEMBER), tự động liên kết hoặc tạo thẻ thư viện
     if (role === UserRole.MEMBER) {
       const existingMember = await this.prisma.member.findUnique({
         where: { email: cleanEmail },

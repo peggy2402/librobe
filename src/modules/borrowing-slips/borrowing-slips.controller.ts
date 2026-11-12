@@ -8,7 +8,6 @@ import {
   Patch,
   Post,
   Query,
-  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -24,8 +23,13 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { UserRole } from '../../common/enums/user-role.enum.js';
+import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { BorrowingSlipsService } from './borrowing-slips.service.js';
+import type { SlipActor } from './borrowing-slips.service.js';
 import { CreateBorrowingSlipDto } from './dto/create-borrowing-slip.dto.js';
 import { FilterBorrowingSlipDto } from './dto/filter-borrowing-slip.dto.js';
 import {
@@ -39,7 +43,6 @@ import {
   BorrowingSlipEntity,
 } from './entities/borrowing-slip.entity.js';
 import { LoanRenewalHistory } from '../borrowings/entities/loan-renewal.entity.js';
-import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { RenewalActor } from '../loan-policy/loan-eligibility.service.js';
 
 @ApiTags(
@@ -49,8 +52,12 @@ import type { RenewalActor } from '../loan-policy/loan-eligibility.service.js';
 @ApiUnauthorizedResponse({
   description: 'Thiếu Bearer Token hoặc Token không hợp lệ/hết hạn',
 })
+@ApiForbiddenResponse({
+  description:
+    'Phê duyệt, từ chối, hủy, trả sách và thu phạt chỉ dành cho ADMIN hoặc LIBRARIAN',
+})
 @Controller('borrowing-slips')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class BorrowingSlipsController {
   constructor(private readonly slipsService: BorrowingSlipsService) {}
 
@@ -105,7 +112,8 @@ export class BorrowingSlipsController {
     type: BorrowingSlipEntity,
   })
   @ApiBadRequestResponse({
-    description: 'Độc giả không đủ điều kiện hoặc yêu cầu vượt quá hạn mức mượn',
+    description:
+      'Độc giả không đủ điều kiện hoặc yêu cầu vượt quá hạn mức mượn',
   })
   @ApiConflictResponse({
     description: 'Số lượng sách trong kho không đủ đáp ứng',
@@ -114,6 +122,7 @@ export class BorrowingSlipsController {
     return this.slipsService.create(dto);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Patch(':id/approve')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -131,16 +140,17 @@ export class BorrowingSlipsController {
     type: BorrowingSlipEntity,
   })
   @ApiConflictResponse({
-    description: 'Phiếu đã được xử lý trước đó (409) hoặc sách bị hết do xung đột đồng thời',
+    description:
+      'Phiếu đã được xử lý trước đó (409) hoặc sách bị hết do xung đột đồng thời',
   })
   approve(
     @Param('id') id: string,
-    @Req() req: any,
+    @CurrentUser() actor: SlipActor,
   ): Promise<BorrowingSlipEntity> {
-    const approver = req.user?.email || 'Librarian';
-    return this.slipsService.approve(id, approver);
+    return this.slipsService.approve(id, actor);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Patch(':id/reject')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -162,10 +172,12 @@ export class BorrowingSlipsController {
   reject(
     @Param('id') id: string,
     @Body() dto: RejectBorrowingSlipDto,
+    @CurrentUser() actor: SlipActor,
   ): Promise<BorrowingSlipEntity> {
-    return this.slipsService.reject(id, dto);
+    return this.slipsService.reject(id, dto, actor);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Patch(':id/cancel')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -188,14 +200,17 @@ export class BorrowingSlipsController {
   cancel(
     @Param('id') id: string,
     @Body() dto: CancelBorrowingSlipDto,
+    @CurrentUser() actor: SlipActor,
   ): Promise<BorrowingSlipEntity> {
-    return this.slipsService.cancel(id, dto);
+    return this.slipsService.cancel(id, dto, actor);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Post(':id/return-items')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Trả sách từng phần & Quyết toán bồi thường (Partial Return & Fine Settlement)',
+    summary:
+      'Trả sách từng phần & Quyết toán bồi thường (Partial Return & Fine Settlement)',
     description:
       'Cho phép hoàn trả một phần hoặc toàn bộ số sách trong phiếu. Tự động tính tiền phạt quá hạn và tiền bồi thường nếu báo mất sách, tự động hoàn kho và cập nhật trạng thái phiếu (PARTIAL_RETURNED hoặc COMPLETED).',
   })
@@ -209,7 +224,8 @@ export class BorrowingSlipsController {
     type: BorrowingSlipEntity,
   })
   @ApiBadRequestResponse({
-    description: 'Phiếu không ở trạng thái đang mượn hoặc dữ liệu trả sách không hợp lệ',
+    description:
+      'Phiếu không ở trạng thái đang mượn hoặc dữ liệu trả sách không hợp lệ',
   })
   returnItems(
     @Param('id') id: string,
@@ -218,6 +234,7 @@ export class BorrowingSlipsController {
     return this.slipsService.returnItems(id, dto);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN, UserRole.MEMBER)
   @Patch(':id/renew')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -238,10 +255,12 @@ export class BorrowingSlipsController {
     type: BorrowingSlipEntity,
   })
   @ApiBadRequestResponse({
-    description: 'Phiếu không ở trạng thái đang mượn, đã quá hạn, hoặc đã dùng hết số lần gia hạn',
+    description:
+      'Phiếu không ở trạng thái đang mượn, đã quá hạn, hoặc đã dùng hết số lần gia hạn',
   })
   @ApiConflictResponse({
-    description: 'Sách trong phiếu đang có độc giả khác đặt trước, hoặc phiếu vừa được gia hạn bởi giao dịch khác',
+    description:
+      'Sách trong phiếu đang có độc giả khác đặt trước, hoặc phiếu vừa được gia hạn bởi giao dịch khác',
   })
   @ApiNotFoundResponse({ description: 'Không tìm thấy phiếu mượn' })
   @ApiForbiddenResponse({
@@ -258,7 +277,8 @@ export class BorrowingSlipsController {
   @Get(':id/renewals')
   @ApiOperation({
     summary: 'Lịch sử gia hạn của phiếu mượn',
-    description: 'Audit trail từng lần gia hạn: hạn trả cũ, hạn trả mới, số ngày, người thực hiện.',
+    description:
+      'Audit trail từng lần gia hạn: hạn trả cũ, hạn trả mới, số ngày, người thực hiện.',
   })
   @ApiParam({ name: 'id', description: 'Mã ID phiếu mượn', example: 'slip-01' })
   @ApiOkResponse({
@@ -270,6 +290,7 @@ export class BorrowingSlipsController {
     return this.slipsService.getRenewalHistory(id);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Post(':id/pay-fine')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -294,5 +315,4 @@ export class BorrowingSlipsController {
   payFine(@Param('id') id: string): Promise<BorrowingSlipEntity> {
     return this.slipsService.payFine(id);
   }
-
 }

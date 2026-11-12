@@ -13,9 +13,9 @@ import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiCreatedResponse,
-  ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiConflictResponse,
+  ApiForbiddenResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
@@ -30,17 +30,23 @@ import { RenewLoanDto } from './dto/renew-loan.dto.js';
 import { ReturnBookDto } from './dto/return-book.dto.js';
 import { Borrowing, BorrowingDetail } from './entities/borrowing.entity.js';
 import { LoanRenewalHistory } from './entities/loan-renewal.entity.js';
+import { UserRole } from '../../common/enums/user-role.enum.js';
+import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { RenewalActor } from '../loan-policy/loan-eligibility.service.js';
+import { RolesGuard } from '../auth/guards/roles.guard.js';
 
 @ApiTags('Borrowings - Quản lý Mượn / Trả Sách')
 @ApiBearerAuth('JWT-auth')
 @ApiUnauthorizedResponse({
   description: 'Thiếu Bearer Token hoặc Token không hợp lệ/hết hạn',
 })
+@ApiForbiddenResponse({
+  description: 'Thao tác tại quầy chỉ dành cho ADMIN hoặc LIBRARIAN',
+})
 @Controller('borrowings')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class BorrowingsController {
   constructor(private readonly borrowingsService: BorrowingsService) {}
 
@@ -137,6 +143,7 @@ export class BorrowingsController {
     return this.borrowingsService.findOne(id, user);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -165,6 +172,7 @@ export class BorrowingsController {
     return this.borrowingsService.borrowBook(dto);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Post(':id/return')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -185,10 +193,12 @@ export class BorrowingsController {
     type: Borrowing,
   })
   @ApiBadRequestResponse({
-    description: 'Phiếu mượn đã hoàn tất trước đó (chống trả sách trùng, không cộng phạt lần hai)',
+    description:
+      'Phiếu mượn đã hoàn tất trước đó (chống trả sách trùng, không cộng phạt lần hai)',
   })
   @ApiConflictResponse({
-    description: 'Phiếu mượn vừa được một giao dịch khác xử lý trả sách đồng thời',
+    description:
+      'Phiếu mượn vừa được một giao dịch khác xử lý trả sách đồng thời',
   })
   @ApiNotFoundResponse({
     description: 'Không tìm thấy phiếu mượn để trả sách',
@@ -200,6 +210,7 @@ export class BorrowingsController {
     return this.borrowingsService.returnBook(id, dto);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN, UserRole.MEMBER)
   @Post(':id/renew')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -221,7 +232,8 @@ export class BorrowingsController {
     type: Borrowing,
   })
   @ApiBadRequestResponse({
-    description: 'Phiếu mượn đã trả sách, đã quá hạn, hoặc đã dùng hết số lần gia hạn cho phép',
+    description:
+      'Phiếu mượn đã trả sách, đã quá hạn, hoặc đã dùng hết số lần gia hạn cho phép',
   })
   @ApiConflictResponse({
     description:
@@ -241,11 +253,13 @@ export class BorrowingsController {
     return this.borrowingsService.renewLoan(id, dto, user);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
   @Post(':id/pay-fine')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Thanh toán tiền phạt quá hạn',
-    description: 'Ghi nhận độc giả đã nộp đủ số tiền phạt phát sinh do trễ hạn trả sách.',
+    description:
+      'Ghi nhận độc giả đã nộp đủ số tiền phạt phát sinh do trễ hạn trả sách.',
   })
   @ApiParam({
     name: 'id',

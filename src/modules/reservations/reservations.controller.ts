@@ -23,6 +23,7 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { CancelReservationDto } from './dto/cancel-reservation.dto.js';
 import { CreateReservationDto } from './dto/create-reservation.dto.js';
 import { FilterReservationDto } from './dto/filter-reservation.dto.js';
@@ -33,7 +34,7 @@ import { ReservationsService } from './reservations.service.js';
 @ApiBearerAuth('JWT-auth')
 @ApiUnauthorizedResponse({ description: 'Thiếu Bearer Token hoặc Token không hợp lệ/hết hạn' })
 @Controller('reservations')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class ReservationsController {
   constructor(private readonly reservationsService: ReservationsService) {}
 
