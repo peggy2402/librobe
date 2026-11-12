@@ -1,12 +1,51 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import type {
+  Borrowing,
+  BorrowingSlip,
+  BorrowingSlipItem,
+  User,
+} from '@prisma/client';
 import { MemberStatus } from '../../common/enums/member-status.enum.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PrismaTx } from './book-stock.service.js';
+import {
+  RenewalBlockReason,
+  RenewalEligibilityDto,
+} from './dto/renewal-eligibility.dto.js';
 import { LoanPolicyService } from './loan-policy.service.js';
 
 const ACTIVE_BORROWING_STATUSES = ['BORROWED', 'OVERDUE'] as const;
 const ACTIVE_SLIP_STATUSES = ['BORROWED', 'PARTIAL_RETURNED'] as const;
 const ACTIVE_SLIP_ITEM_STATUSES = ['PENDING', 'BORROWING'] as const;
+
+/** Danh tính do JwtAuthGuard xác thực, không lấy từ body/query. */
+export type RenewalActor = Pick<User, 'id' | 'role' | 'memberId'>;
+
+type RenewableBorrowing = Pick<
+  Borrowing,
+  'memberId' | 'bookId' | 'status' | 'returnDate' | 'dueDate' | 'renewCount'
+>;
+type RenewableSlip = Pick<
+  BorrowingSlip,
+  'memberId' | 'status' | 'dueDate' | 'renewCount'
+> & {
+  items: Pick<BorrowingSlipItem, 'bookId' | 'status'>[];
+};
+
+interface RenewalState {
+  memberId: string;
+  dueDate: Date;
+  renewCount: number;
+  renewableStatus: boolean;
+  invalidStatusMessage: string;
+  bookIds: string[];
+}
 
 /** Lý do từ chối, dùng để test và để frontend hiển thị nhất quán. */
 export enum BorrowBlockReason {
@@ -74,7 +113,11 @@ export class LoanEligibilityService {
             dueDate: true,
             items: {
               where: { status: { in: [...ACTIVE_SLIP_ITEM_STATUSES] } },
-              select: { quantity: true, returnedQuantity: true, lostQuantity: true },
+              select: {
+                quantity: true,
+                returnedQuantity: true,
+                lostQuantity: true,
+              },
             },
           },
         },
@@ -82,7 +125,9 @@ export class LoanEligibilityService {
     });
 
     if (!member) {
-      throw new NotFoundException(`Không tìm thấy độc giả với ID "${memberId}"`);
+      throw new NotFoundException(
+        `Không tìm thấy độc giả với ID "${memberId}"`,
+      );
     }
 
     const activeLoanCount = member.borrowings.length;
@@ -91,14 +136,21 @@ export class LoanEligibilityService {
         total +
         slip.items.reduce(
           (sum, item) =>
-            sum + Math.max(0, item.quantity - item.returnedQuantity - item.lostQuantity),
+            sum +
+            Math.max(
+              0,
+              item.quantity - item.returnedQuantity - item.lostQuantity,
+            ),
           0,
         ),
       0,
     );
 
     const currentBorrowedCount = activeLoanCount + activeSlipCount;
-    const remainingBorrowLimit = Math.max(0, member.maxBorrowLimit - currentBorrowedCount);
+    const remainingBorrowLimit = Math.max(
+      0,
+      member.maxBorrowLimit - currentBorrowedCount,
+    );
 
     const overdueLoans = member.borrowings.filter(
       (loan) => loan.status === 'OVERDUE' || this.policy.isOverdue(loan.dueDate, now),
@@ -136,7 +188,10 @@ export class LoanEligibilityService {
   }
 
   /** Tổng tiền phạt chưa thanh toán, cộng từ phiếu mượn lẻ và phiếu mượn ERP. */
-  async getTotalUnpaidFine(memberId: string, client: PrismaTx = this.prisma): Promise<number> {
+  async getTotalUnpaidFine(
+    memberId: string,
+    client: PrismaTx = this.prisma,
+  ): Promise<number> {
     const [loanFines, slipFines] = await Promise.all([
       client.borrowing.aggregate({
         where: { memberId, finePaid: false, fineAmount: { gt: 0 } },
@@ -198,6 +253,146 @@ export class LoanEligibilityService {
         OR: [{ expiresAt: null }, { expiresAt: { gte: now } }],
       },
     });
+  }
+
+  getBorrowingRenewalEligibility(
+    borrowing: RenewableBorrowing,
+    actor: RenewalActor,
+    client: PrismaTx = this.prisma,
+    now: Date = new Date(),
+  ): Promise<RenewalEligibilityDto> {
+    return this.evaluateRenewal(
+      {
+        ...borrowing,
+        renewableStatus:
+          !borrowing.returnDate && borrowing.status !== 'RETURNED',
+        invalidStatusMessage:
+          'Phiếu mượn đã hoàn tất trả sách, không thể gia hạn thêm',
+        bookIds: [borrowing.bookId],
+      },
+      actor,
+      client,
+      now,
+    );
+  }
+
+  getSlipRenewalEligibility(
+    slip: RenewableSlip,
+    actor: RenewalActor,
+    client: PrismaTx = this.prisma,
+    now: Date = new Date(),
+  ): Promise<RenewalEligibilityDto> {
+    return this.evaluateRenewal(
+      {
+        ...slip,
+        renewableStatus:
+          slip.status === 'BORROWED' || slip.status === 'PARTIAL_RETURNED',
+        invalidStatusMessage: `Chỉ gia hạn được phiếu đang ở trạng thái BORROWED hoặc PARTIAL_RETURNED (hiện tại: ${slip.status})`,
+        bookIds: slip.items
+          .filter(
+            (item) => item.status === 'PENDING' || item.status === 'BORROWING',
+          )
+          .map((item) => item.bookId),
+      },
+      actor,
+      client,
+      now,
+    );
+  }
+
+  /** Luồng ghi dùng lại chính kết quả đánh giá của GET chi tiết, bên trong transaction. */
+  assertCanRenew(result: RenewalEligibilityDto): void {
+    if (result.canRenew) {
+      return;
+    }
+    if (result.reasonCode === RenewalBlockReason.NOT_OWNER) {
+      throw new ForbiddenException(result.message);
+    }
+    if (result.reasonCode === RenewalBlockReason.ACTIVE_RESERVATION) {
+      throw new ConflictException(result.message);
+    }
+    throw new BadRequestException(result.message);
+  }
+
+  private async evaluateRenewal(
+    state: RenewalState,
+    actor: RenewalActor,
+    client: PrismaTx,
+    now: Date,
+  ): Promise<RenewalEligibilityDto> {
+    const blocked = (
+      reasonCode: RenewalBlockReason,
+      message: string,
+    ): RenewalEligibilityDto => ({
+      canRenew: false,
+      reasonCode,
+      message,
+    });
+
+    // Nhân viên được gia hạn thay độc giả; MEMBER phải có thẻ khớp chủ phiếu.
+    if (
+      !actor ||
+      (actor.role !== 'ADMIN' &&
+        actor.role !== 'LIBRARIAN' &&
+        (actor.role !== 'MEMBER' ||
+          !actor.memberId ||
+          actor.memberId !== state.memberId))
+    ) {
+      return blocked(
+        RenewalBlockReason.NOT_OWNER,
+        'Bạn chỉ được gia hạn phiếu mượn của chính mình',
+      );
+    }
+    if (!state.renewableStatus) {
+      return blocked(
+        RenewalBlockReason.INVALID_STATUS,
+        state.invalidStatusMessage,
+      );
+    }
+    if (this.policy.isOverdue(state.dueDate, now)) {
+      return blocked(
+        RenewalBlockReason.OVERDUE,
+        'Phiếu mượn đã quá hạn chót trả sách. Không được phép gia hạn thêm',
+      );
+    }
+    if (state.renewCount >= this.policy.maxRenewCount) {
+      return blocked(
+        RenewalBlockReason.MAX_RENEWALS_REACHED,
+        `Đã đạt số lần gia hạn tối đa (${this.policy.maxRenewCount} lần) cho phiếu mượn này`,
+      );
+    }
+    if (this.policy.renewWindowDays > 0) {
+      const daysUntilDue = Math.ceil(
+        (state.dueDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000),
+      );
+      if (daysUntilDue > this.policy.renewWindowDays) {
+        return blocked(
+          RenewalBlockReason.OUTSIDE_RENEWAL_WINDOW,
+          `Chỉ được gia hạn khi còn tối đa ${this.policy.renewWindowDays} ngày tới hạn trả (hiện còn ${daysUntilDue} ngày)`,
+        );
+      }
+    }
+    if (this.policy.blockRenewWhenReserved) {
+      for (const bookId of new Set(state.bookIds)) {
+        const waitingCount = await this.countActiveReservationsByOthers(
+          bookId,
+          state.memberId,
+          client,
+          now,
+        );
+        if (waitingCount > 0) {
+          return blocked(
+            RenewalBlockReason.ACTIVE_RESERVATION,
+            'Sách đã có người khác đặt trước',
+          );
+        }
+      }
+    }
+    return {
+      canRenew: true,
+      reasonCode: null,
+      message: 'Phiếu mượn đủ điều kiện gia hạn',
+    };
   }
 
   private resolveBlockReason(

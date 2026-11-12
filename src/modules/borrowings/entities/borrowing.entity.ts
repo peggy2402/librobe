@@ -1,5 +1,10 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional,
+  IntersectionType,
+} from '@nestjs/swagger';
 import { BorrowingStatus } from '../../../common/enums/borrowing-status.enum.js';
+import { RenewalEligibilityDto } from '../../loan-policy/dto/renewal-eligibility.dto.js';
 
 export class Borrowing {
   @ApiProperty({
@@ -108,3 +113,8 @@ export class Borrowing {
   })
   updatedAt!: Date;
 }
+
+export class BorrowingDetail extends IntersectionType(
+  Borrowing,
+  RenewalEligibilityDto,
+) {}

@@ -1,5 +1,12 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import {
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class RenewLoanDto {
   @ApiPropertyOptional({
@@ -26,7 +33,9 @@ export class RenewLoanDto {
   notes?: string;
 
   @ApiPropertyOptional({
-    description: 'Thủ thư thực hiện gia hạn (lưu vào lịch sử để phục vụ audit)',
+    description:
+      'Không còn sử dụng: người gia hạn được lấy từ tài khoản đã xác thực (JWT)',
+    deprecated: true,
     example: 'Thủ thư Lan',
   })
   @IsOptional()

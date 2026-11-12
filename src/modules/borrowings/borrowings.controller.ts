@@ -28,11 +28,13 @@ import { BorrowBookDto } from './dto/borrow-book.dto.js';
 import { FilterBorrowingDto } from './dto/filter-borrowing.dto.js';
 import { RenewLoanDto } from './dto/renew-loan.dto.js';
 import { ReturnBookDto } from './dto/return-book.dto.js';
-import { Borrowing } from './entities/borrowing.entity.js';
+import { Borrowing, BorrowingDetail } from './entities/borrowing.entity.js';
 import { LoanRenewalHistory } from './entities/loan-renewal.entity.js';
 import { UserRole } from '../../common/enums/user-role.enum.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import type { RenewalActor } from '../loan-policy/loan-eligibility.service.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 
 @ApiTags('Borrowings - Quản lý Mượn / Trả Sách')
@@ -89,7 +91,9 @@ export class BorrowingsController {
     description: 'Chỉ lấy khoản phạt của một độc giả',
     example: 'mem-01',
   })
-  @ApiOkResponse({ description: 'Tổng tiền phạt chưa thu và danh sách phiếu mượn liên quan' })
+  @ApiOkResponse({
+    description: 'Tổng tiền phạt chưa thu và danh sách phiếu mượn liên quan',
+  })
   getUnpaidFines(@Query('memberId') memberId?: string) {
     return this.borrowingsService.getUnpaidFines(memberId);
   }
@@ -97,10 +101,18 @@ export class BorrowingsController {
   @Get(':id/renewals')
   @ApiOperation({
     summary: 'Lịch sử gia hạn của một phiếu mượn',
-    description: 'Trả về audit trail từng lần gia hạn: hạn trả cũ, hạn trả mới, số ngày, người thực hiện.',
+    description:
+      'Trả về audit trail từng lần gia hạn: hạn trả cũ, hạn trả mới, số ngày, người thực hiện.',
   })
-  @ApiParam({ name: 'id', description: 'Mã ID của phiếu mượn', example: 'brw-01' })
-  @ApiOkResponse({ description: 'Danh sách lần gia hạn', type: [LoanRenewalHistory] })
+  @ApiParam({
+    name: 'id',
+    description: 'Mã ID của phiếu mượn',
+    example: 'brw-01',
+  })
+  @ApiOkResponse({
+    description: 'Danh sách lần gia hạn',
+    type: [LoanRenewalHistory],
+  })
   @ApiNotFoundResponse({ description: 'Không tìm thấy phiếu mượn' })
   getRenewalHistory(@Param('id') id: string): Promise<LoanRenewalHistory[]> {
     return this.borrowingsService.getRenewalHistory(id);
@@ -109,7 +121,8 @@ export class BorrowingsController {
   @Get(':id')
   @ApiOperation({
     summary: 'Lấy chi tiết một phiếu mượn sách',
-    description: 'Trả về thông tin chi tiết phiếu mượn, ngày hẹn trả, hạn phạt và lịch sử gia hạn.',
+    description:
+      'Trả về chi tiết phiếu mượn và canRenew, reasonCode, message theo người gọi và chính sách gia hạn hiện tại.',
   })
   @ApiParam({
     name: 'id',
@@ -118,13 +131,16 @@ export class BorrowingsController {
   })
   @ApiOkResponse({
     description: 'Chi tiết phiếu mượn',
-    type: Borrowing,
+    type: BorrowingDetail,
   })
   @ApiNotFoundResponse({
     description: 'Không tìm thấy phiếu mượn',
   })
-  findOne(@Param('id') id: string): Promise<Borrowing> {
-    return this.borrowingsService.findOne(id);
+  findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: RenewalActor,
+  ): Promise<BorrowingDetail> {
+    return this.borrowingsService.findOne(id, user);
   }
 
   @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
@@ -177,24 +193,30 @@ export class BorrowingsController {
     type: Borrowing,
   })
   @ApiBadRequestResponse({
-    description: 'Phiếu mượn đã hoàn tất trước đó (chống trả sách trùng, không cộng phạt lần hai)',
+    description:
+      'Phiếu mượn đã hoàn tất trước đó (chống trả sách trùng, không cộng phạt lần hai)',
   })
   @ApiConflictResponse({
-    description: 'Phiếu mượn vừa được một giao dịch khác xử lý trả sách đồng thời',
+    description:
+      'Phiếu mượn vừa được một giao dịch khác xử lý trả sách đồng thời',
   })
   @ApiNotFoundResponse({
     description: 'Không tìm thấy phiếu mượn để trả sách',
   })
-  returnBook(@Param('id') id: string, @Body() dto: ReturnBookDto): Promise<Borrowing> {
+  returnBook(
+    @Param('id') id: string,
+    @Body() dto: ReturnBookDto,
+  ): Promise<Borrowing> {
     return this.borrowingsService.returnBook(id, dto);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN, UserRole.MEMBER)
   @Post(':id/renew')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Gia hạn thời gian mượn sách',
     description:
+      'ADMIN/LIBRARIAN được gia hạn thay độc giả; MEMBER chỉ được gia hạn lượt mượn của chính mình. ' +
       'Gia hạn thêm thời gian mượn (mặc định LOAN_RENEW_DAYS = 7 ngày, tối đa LOAN_RENEW_MAX_DAYS = 14 ngày mỗi lần). ' +
       'Điều kiện kiểm tra theo thứ tự: chưa trả sách -> chưa quá hạn -> chưa dùng hết số lần gia hạn ' +
       '(LOAN_RENEW_MAX_COUNT, mặc định 1 lần) -> cuốn sách không có độc giả khác đang đặt trước. ' +
@@ -210,7 +232,8 @@ export class BorrowingsController {
     type: Borrowing,
   })
   @ApiBadRequestResponse({
-    description: 'Phiếu mượn đã trả sách, đã quá hạn, hoặc đã dùng hết số lần gia hạn cho phép',
+    description:
+      'Phiếu mượn đã trả sách, đã quá hạn, hoặc đã dùng hết số lần gia hạn cho phép',
   })
   @ApiConflictResponse({
     description:
@@ -219,8 +242,15 @@ export class BorrowingsController {
   @ApiNotFoundResponse({
     description: 'Không tìm thấy phiếu mượn để gia hạn',
   })
-  renewLoan(@Param('id') id: string, @Body() dto: RenewLoanDto): Promise<Borrowing> {
-    return this.borrowingsService.renewLoan(id, dto);
+  @ApiForbiddenResponse({
+    description: 'MEMBER không có thẻ độc giả hoặc không phải chủ phiếu mượn',
+  })
+  renewLoan(
+    @Param('id') id: string,
+    @Body() dto: RenewLoanDto,
+    @CurrentUser() user: RenewalActor,
+  ): Promise<Borrowing> {
+    return this.borrowingsService.renewLoan(id, dto, user);
   }
 
   @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
@@ -228,7 +258,8 @@ export class BorrowingsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Thanh toán tiền phạt quá hạn',
-    description: 'Ghi nhận độc giả đã nộp đủ số tiền phạt phát sinh do trễ hạn trả sách.',
+    description:
+      'Ghi nhận độc giả đã nộp đủ số tiền phạt phát sinh do trễ hạn trả sách.',
   })
   @ApiParam({
     name: 'id',

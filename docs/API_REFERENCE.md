@@ -75,8 +75,43 @@ Chi tiết đầy đủ về request, response, lỗi và mapping frontend của
 | `GET` | `/api/borrowings/:id` | **Có** | Xem chi tiết 1 phiếu mượn |
 | `POST` | `/api/borrowings` | **Có** | Tạo phiếu mượn sách mới cho độc giả |
 | `POST` | `/api/borrowings/:id/return`| **Có** | Hoàn trả sách về kho, tự động tính tiền phạt trễ hạn |
-| `POST` | `/api/borrowings/:id/renew` | **Có** | Gia hạn thời gian mượn thêm ngày (tối đa 2 lần) |
+| `POST` | `/api/borrowings/:id/renew` | **Có** | Gia hạn theo chính sách thư viện; MEMBER chỉ gia hạn lượt mượn của mình |
 | `POST` | `/api/borrowings/:id/pay-fine`| **Có** | Ghi nhận độc giả đã thanh toán tiền phạt quá hạn |
+
+#### Gia hạn và thông tin khóa nút trên Flutter
+
+Áp dụng cho `POST /api/borrowings/:id/renew` và `PATCH /api/borrowing-slips/:id/renew`:
+
+- `ADMIN`, `LIBRARIAN` được gia hạn thay độc giả, vẫn phải thỏa điều kiện gia hạn.
+- `MEMBER` chỉ được gia hạn khi `memberId` của tài khoản đã xác thực khớp `memberId` của phiếu. Không khớp hoặc chưa liên kết thẻ độc giả: **403 Forbidden**.
+- Danh tính được lấy từ người dùng mà `JwtAuthGuard` xác thực qua JWT. Không sử dụng `memberId` hay `role` trong body để cấp quyền. Lịch sử `renewedBy` lưu ID tài khoản này; trường `renewedBy` do client gửi lên đã ngừng sử dụng.
+
+`GET /api/borrowings/:id` và `GET /api/borrowing-slips/:id` trả thêm ba trường ở cấp gốc của JSON, bên cạnh các thông tin phiếu đang có:
+
+```json
+{
+  "id": "brw-01",
+  "memberId": "mem-01",
+  "canRenew": false,
+  "reasonCode": "ACTIVE_RESERVATION",
+  "message": "Sách đã có người khác đặt trước"
+}
+```
+
+Khi đủ điều kiện: `canRenew: true`, `reasonCode: null`, `message: "Phiếu mượn đủ điều kiện gia hạn"`.
+
+| `reasonCode` | Ý nghĩa | HTTP khi gửi yêu cầu gia hạn |
+| :--- | :--- | :--- |
+| `NOT_OWNER` | Người gọi không được gia hạn phiếu này | 403 |
+| `INVALID_STATUS` | Phiếu đã trả sách hoặc không ở trạng thái được gia hạn | 400 |
+| `OVERDUE` | Phiếu quá hạn theo chính sách hiện tại | 400 |
+| `MAX_RENEWALS_REACHED` | Đã hết số lần gia hạn (`LOAN_RENEW_MAX_COUNT`, mặc định 1) | 400 |
+| `OUTSIDE_RENEWAL_WINDOW` | Chưa vào khoảng thời gian cho phép gia hạn (`LOAN_RENEW_WINDOW_DAYS`) | 400 |
+| `ACTIVE_RESERVATION` | Sách có độc giả khác đặt trước còn hiệu lực | 409 |
+
+Các lý do được xét theo thứ tự trên. Reservation chỉ chặn khi `LOAN_RENEW_BLOCK_WHEN_RESERVED=true`; chỉ tính `PENDING`/`READY` chưa hết hạn của độc giả khác. Với phiếu trả một phần, chỉ kiểm tra các dòng sách còn `PENDING`/`BORROWING`.
+
+Flutter dùng `canRenew` để bật/tắt nút và `message` để hiển thị lý do. Kết quả GET phản ánh thời điểm tra cứu; API gia hạn luôn đánh giá lại trong transaction, nên client vẫn cần xử lý lỗi 400/403/409 rồi tải lại chi tiết. Thiếu JWT hoặc JWT không hợp lệ trả **401**, phiếu không tồn tại trả **404**.
 
 ---
 

@@ -9,8 +9,12 @@ import { Prisma } from '@prisma/client';
 import { PaginatedResponseDto } from '../../common/dto/pagination.dto.js';
 import { BookStatus } from '../../common/enums/book-status.enum.js';
 import { BorrowingStatus } from '../../common/enums/borrowing-status.enum.js';
-import { BookStockService, PrismaTx } from '../loan-policy/book-stock.service.js';
+import {
+  BookStockService,
+  PrismaTx,
+} from '../loan-policy/book-stock.service.js';
 import { LoanEligibilityService } from '../loan-policy/loan-eligibility.service.js';
+import type { RenewalActor } from '../loan-policy/loan-eligibility.service.js';
 import { LoanPolicyService } from '../loan-policy/loan-policy.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ReservationsService } from '../reservations/reservations.service.js';
@@ -18,7 +22,7 @@ import { BorrowBookDto } from './dto/borrow-book.dto.js';
 import { FilterBorrowingDto } from './dto/filter-borrowing.dto.js';
 import { RenewLoanDto } from './dto/renew-loan.dto.js';
 import { ReturnBookDto } from './dto/return-book.dto.js';
-import { Borrowing } from './entities/borrowing.entity.js';
+import { Borrowing, BorrowingDetail } from './entities/borrowing.entity.js';
 import { LoanRenewalHistory } from './entities/loan-renewal.entity.js';
 
 /** Số lần thử lại khi mã phiếu mượn bị trùng do hai request tạo cùng lúc. */
@@ -36,7 +40,9 @@ export class BorrowingsService {
     private readonly reservations: ReservationsService,
   ) {}
 
-  async findAll(filters: FilterBorrowingDto): Promise<PaginatedResponseDto<Borrowing>> {
+  async findAll(
+    filters: FilterBorrowingDto,
+  ): Promise<PaginatedResponseDto<Borrowing>> {
     await this.refreshOverdueStatus();
 
     const page = filters.page || 1;
@@ -102,7 +108,7 @@ export class BorrowingsService {
     };
   }
 
-  async findOne(id: string): Promise<Borrowing> {
+  async findOne(id: string, actor: RenewalActor): Promise<BorrowingDetail> {
     await this.refreshOverdueStatus();
 
     const borrowing = await this.prisma.borrowing.findUnique({
@@ -117,7 +123,11 @@ export class BorrowingsService {
       throw new NotFoundException(`Không tìm thấy phiếu mượn với ID "${id}"`);
     }
 
-    return this.mapPrismaToEntity(borrowing);
+    const renewal = await this.eligibility.getBorrowingRenewalEligibility(
+      borrowing,
+      actor,
+    );
+    return { ...this.mapPrismaToEntity(borrowing), ...renewal };
   }
 
   /**
@@ -171,11 +181,15 @@ export class BorrowingsService {
       });
 
       if (!book) {
-        throw new NotFoundException(`Không tìm thấy cuốn sách với ID "${dto.bookId}"`);
+        throw new NotFoundException(
+          `Không tìm thấy cuốn sách với ID "${dto.bookId}"`,
+        );
       }
 
       if (book.status === BookStatus.DISCONTINUED) {
-        throw new BadRequestException('Cuốn sách này đã ngừng lưu hành trong thư viện');
+        throw new BadRequestException(
+          'Cuốn sách này đã ngừng lưu hành trong thư viện',
+        );
       }
 
       if (book.copiesAvailable <= 0) {
@@ -254,8 +268,13 @@ export class BorrowingsService {
         throw new NotFoundException(`Không tìm thấy phiếu mượn với ID "${id}"`);
       }
 
-      if (borrowing.returnDate || borrowing.status === BorrowingStatus.RETURNED) {
-        throw new BadRequestException('Phiếu mượn này đã được hoàn trả trước đó');
+      if (
+        borrowing.returnDate ||
+        borrowing.status === BorrowingStatus.RETURNED
+      ) {
+        throw new BadRequestException(
+          'Phiếu mượn này đã được hoàn trả trước đó',
+        );
       }
 
       const overdueDays = this.policy.countOverdueDays(borrowing.dueDate, now);
@@ -324,13 +343,14 @@ export class BorrowingsService {
    *
    * Thứ tự kiểm tra (cố định để thông điệp lỗi luôn xác định được):
    * 1. Phiếu tồn tại        -> 404
-   * 2. Đã trả sách          -> 400
-   * 3. Đã quá hạn           -> 400
-   * 4. Hết số lần gia hạn   -> 400
-   * 5. Ngoài cửa sổ gia hạn -> 400 (chỉ khi LOAN_RENEW_WINDOW_DAYS > 0)
-   * 6. Có người đặt trước   -> 409
+   * 2. MEMBER là chủ phiếu  -> 403 nếu không khớp memberId
+   * 3. Điều kiện gia hạn dùng chung với GET chi tiết -> 400/409
    */
-  async renewLoan(id: string, dto: RenewLoanDto): Promise<Borrowing> {
+  async renewLoan(
+    id: string,
+    dto: RenewLoanDto,
+    actor: RenewalActor,
+  ): Promise<Borrowing> {
     const now = new Date();
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -353,54 +373,20 @@ export class BorrowingsService {
         throw new NotFoundException(`Không tìm thấy phiếu mượn với ID "${id}"`);
       }
 
-      if (borrowing.returnDate || borrowing.status === BorrowingStatus.RETURNED) {
-        throw new BadRequestException(
-          'Phiếu mượn đã hoàn tất trả sách, không thể gia hạn thêm',
-        );
-      }
-
-      if (this.policy.isOverdue(borrowing.dueDate, now)) {
-        throw new BadRequestException(
-          'Phiếu mượn đã quá hạn chót trả sách. Không được phép gia hạn thêm',
-        );
-      }
-
-      if (borrowing.renewCount >= this.policy.maxRenewCount) {
-        throw new BadRequestException(
-          `Đã đạt số lần gia hạn tối đa (${this.policy.maxRenewCount} lần) cho lượt mượn này`,
-        );
-      }
-
-      if (this.policy.renewWindowDays > 0) {
-        const daysUntilDue = Math.ceil(
-          (new Date(borrowing.dueDate).getTime() - now.getTime()) / (24 * 60 * 60 * 1000),
-        );
-        if (daysUntilDue > this.policy.renewWindowDays) {
-          throw new BadRequestException(
-            `Chỉ được gia hạn khi còn tối đa ${this.policy.renewWindowDays} ngày tới hạn trả (hiện còn ${daysUntilDue} ngày)`,
-          );
-        }
-      }
-
-      if (this.policy.blockRenewWhenReserved) {
-        const waitingCount = await this.eligibility.countActiveReservationsByOthers(
-          borrowing.bookId,
-          borrowing.memberId,
+      this.eligibility.assertCanRenew(
+        await this.eligibility.getBorrowingRenewalEligibility(
+          borrowing,
+          actor,
           tx,
           now,
-        );
-
-        if (waitingCount > 0) {
-          throw new ConflictException(
-            `Cuốn sách "${borrowing.book?.title ?? borrowing.bookId}" đang có ${waitingCount} độc giả khác đặt trước. ` +
-              'Theo chính sách thư viện, phiếu mượn này không được gia hạn và cần hoàn trả đúng hạn',
-          );
-        }
-      }
+        ),
+      );
 
       const extraDays = this.policy.resolveRenewDays(dto.extraDays);
       const previousDueDate = new Date(borrowing.dueDate);
-      const newDueDate = new Date(previousDueDate.getTime() + extraDays * 24 * 60 * 60 * 1000);
+      const newDueDate = new Date(
+        previousDueDate.getTime() + extraDays * 24 * 60 * 60 * 1000,
+      );
       const nextSequence = borrowing.renewCount + 1;
 
       // Atomic: chỉ gia hạn khi renewCount vẫn đúng như lúc kiểm tra
@@ -431,7 +417,7 @@ export class BorrowingsService {
           newDueDate,
           extraDays,
           renewedAt: now,
-          renewedBy: dto.renewedBy?.trim() || null,
+          renewedBy: actor.id,
           reason: dto.notes?.trim() || null,
         },
       });
@@ -490,11 +476,15 @@ export class BorrowingsService {
       }
 
       if (borrowing.fineAmount <= 0) {
-        throw new BadRequestException('Phiếu mượn này không có phát sinh tiền phạt');
+        throw new BadRequestException(
+          'Phiếu mượn này không có phát sinh tiền phạt',
+        );
       }
 
       if (borrowing.finePaid) {
-        throw new BadRequestException('Tiền phạt của phiếu mượn này đã được thanh toán trước đó');
+        throw new BadRequestException(
+          'Tiền phạt của phiếu mượn này đã được thanh toán trước đó',
+        );
       }
 
       // Chống thu phạt hai lần khi người dùng bấm nút liên tiếp.
@@ -504,7 +494,9 @@ export class BorrowingsService {
       });
 
       if (claimed.count === 0) {
-        throw new ConflictException('Tiền phạt vừa được thanh toán bởi một giao dịch khác');
+        throw new ConflictException(
+          'Tiền phạt vừa được thanh toán bởi một giao dịch khác',
+        );
       }
 
       return tx.borrowing.findUniqueOrThrow({

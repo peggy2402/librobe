@@ -1,11 +1,13 @@
 // Kiểm chứng end-to-end 5 việc vừa làm, trên database thật. Tự dọn dữ liệu.
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
 
 const API = 'http://localhost:3999/api';
 const prisma = new PrismaClient();
 const S = Date.now().toString().slice(-7);
+// Mật khẩu chỉ tồn tại trong lần chạy này, dùng chung cho đăng ký và đăng nhập.
+const testPassword = randomBytes(24).toString('hex');
 const env = Object.fromEntries(readFileSync('.env', 'utf8').split('\n')
   .filter((l) => l.includes('=') && !l.trim().startsWith('#'))
   .map((l) => [l.slice(0, l.indexOf('=')).trim(), l.slice(l.indexOf('=') + 1).trim()]));
@@ -35,7 +37,7 @@ try {
   console.log('--- VIEC 4: chan leo thang dac quyen qua /auth/register ---');
   const atkEmail = `rbac.atk.${S}@librobe.test`; EMAILS.push(atkEmail);
   const reg = await call('POST', '/auth/register', null, {
-    email: atkEmail, phone: `09${S}1`, password: 'MatKhau@123',
+    email: atkEmail, phone: `09${S}1`, password: testPassword,
     fullName: 'Ke Tan Cong', role: 'ADMIN',
   });
   check('Tu dang ky voi role=ADMIN -> bi buoc thanh MEMBER',
@@ -122,7 +124,7 @@ try {
   check('Response khong chua mat khau', up.body && !('password' in up.body), '');
 
   // sau khi len thu thu thi duyet duoc phieu
-  const libToken = await login(atkEmail, 'MatKhau@123');
+  const libToken = await login(atkEmail, testPassword);
   const s4 = (await call('POST', '/borrowing-slips', admin, { memberId: member.id, items: [{ bookId: bk.body.id, quantity: 1 }] })).body;
   const libAppr = await call('PATCH', `/borrowing-slips/${s4.id}/approve`, libToken);
   check('Sau khi len LIBRARIAN thi duyet duoc phieu -> 200', libAppr.status === 200, `HTTP ${libAppr.status}`);
