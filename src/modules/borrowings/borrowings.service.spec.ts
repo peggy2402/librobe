@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BookStatus } from '../../common/enums/book-status.enum.js';
 import { BorrowingStatus } from '../../common/enums/borrowing-status.enum.js';
@@ -9,6 +15,11 @@ import { LoanPolicyService } from '../loan-policy/loan-policy.service.js';
 import { BorrowingsService } from './borrowings.service.js';
 
 const DAY = 24 * 60 * 60 * 1000;
+const memberActor = {
+  id: 'user-01',
+  role: UserRole.MEMBER,
+  memberId: 'mem-01',
+};
 
 /** Dựng độc giả ở trạng thái hợp lệ, có thể ghi đè từng thuộc tính. */
 function buildMember(overrides: Record<string, unknown> = {}) {
@@ -22,8 +33,16 @@ function buildMember(overrides: Record<string, unknown> = {}) {
     currentBorrowedCount: 2,
     // Mặc định: đang mượn 2 cuốn qua phiếu mượn lẻ
     borrowings: [
-      { id: 'brw-a', status: BorrowingStatus.BORROWED, dueDate: new Date(Date.now() + 10 * DAY) },
-      { id: 'brw-b', status: BorrowingStatus.BORROWED, dueDate: new Date(Date.now() + 12 * DAY) },
+      {
+        id: 'brw-a',
+        status: BorrowingStatus.BORROWED,
+        dueDate: new Date(Date.now() + 10 * DAY),
+      },
+      {
+        id: 'brw-b',
+        status: BorrowingStatus.BORROWED,
+        dueDate: new Date(Date.now() + 12 * DAY),
+      },
     ],
     borrowingSlips: [],
     ...overrides,
@@ -99,7 +118,13 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
     const eligibility = new LoanEligibilityService(prismaMock, policy);
     const stock = new BookStockService();
 
-    service = new BorrowingsService(prismaMock, policy, eligibility, stock, reservationsMock);
+    service = new BorrowingsService(
+      prismaMock,
+      policy,
+      eligibility,
+      stock,
+      reservationsMock,
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -128,7 +153,10 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
       };
       prismaMock.borrowing.create.mockResolvedValue(createdRow);
 
-      const result = await service.borrowBook({ memberId: 'mem-01', bookId: 'book-01' });
+      const result = await service.borrowBook({
+        memberId: 'mem-01',
+        bookId: 'book-01',
+      });
 
       expect(result.status).toBe(BorrowingStatus.BORROWED);
       expect(result.transactionCode).toBe('BRW-2026-0001');
@@ -168,7 +196,10 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
         }),
       );
 
-      const result = await service.borrowBook({ memberId: 'mem-01', bookId: 'book-01' });
+      const result = await service.borrowBook({
+        memberId: 'mem-01',
+        bookId: 'book-01',
+      });
       const spanDays = Math.round(
         (new Date(result.dueDate).getTime() - new Date(result.borrowDate).getTime()) / DAY,
       );
@@ -177,7 +208,9 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
     });
 
     it('sinh mã phiếu mượn tiếp theo dựa trên mã lớn nhất hiện có', async () => {
-      prismaMock.borrowing.findFirst.mockResolvedValue({ transactionCode: 'BRW-2026-0007' });
+      prismaMock.borrowing.findFirst.mockResolvedValue({
+        transactionCode: 'BRW-2026-0007',
+      });
       prismaMock.borrowing.create.mockImplementation((args: any) =>
         Promise.resolve({
           ...args.data,
@@ -189,7 +222,10 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
         }),
       );
 
-      const result = await service.borrowBook({ memberId: 'mem-01', bookId: 'book-01' });
+      const result = await service.borrowBook({
+        memberId: 'mem-01',
+        bookId: 'book-01',
+      });
       expect(result.transactionCode).toBe('BRW-2026-0008');
     });
   });
@@ -285,7 +321,9 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
     });
 
     it('còn nợ tiền phạt chưa thanh toán -> 400 và không tạo phiếu mượn', async () => {
-      prismaMock.borrowing.aggregate.mockResolvedValue({ _sum: { fineAmount: 25_000 } });
+      prismaMock.borrowing.aggregate.mockResolvedValue({
+        _sum: { fineAmount: 25_000 },
+      });
 
       await expect(
         service.borrowBook({ memberId: 'mem-01', bookId: 'book-01' }),
@@ -304,7 +342,9 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
     });
 
     it('sách đã hết bản khả dụng -> 400', async () => {
-      prismaMock.book.findUnique.mockResolvedValue(buildBook({ copiesAvailable: 0 }));
+      prismaMock.book.findUnique.mockResolvedValue(
+        buildBook({ copiesAvailable: 0 }),
+      );
 
       await expect(
         service.borrowBook({ memberId: 'mem-01', bookId: 'book-01' }),
@@ -331,7 +371,9 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
   describe('Tình huống 3 - Tranh chấp bản sách cuối cùng (concurrency)', () => {
     it('request thua cuộc nhận 409 và KHÔNG tạo phiếu mượn (toàn bộ giao dịch rollback)', async () => {
       // Kho còn 1 cuốn tại thời điểm đọc, nhưng khi trừ kho thì đã bị giành mất
-      prismaMock.book.findUnique.mockResolvedValue(buildBook({ copiesAvailable: 1 }));
+      prismaMock.book.findUnique.mockResolvedValue(
+        buildBook({ copiesAvailable: 1 }),
+      );
       prismaMock.book.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(
@@ -343,7 +385,9 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
     });
 
     it('việc trừ kho luôn kèm điều kiện copiesAvailable >= số lượng cần, nên tồn kho không thể âm', async () => {
-      prismaMock.book.findUnique.mockResolvedValue(buildBook({ copiesAvailable: 1 }));
+      prismaMock.book.findUnique.mockResolvedValue(
+        buildBook({ copiesAvailable: 1 }),
+      );
       prismaMock.borrowing.create.mockResolvedValue({
         id: 'brw-new',
         transactionCode: 'BRW-2026-0001',
@@ -415,7 +459,9 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
       // Hoàn kho dùng câu lệnh atomic có chặn vượt copiesTotal
       expect(prismaMock.$executeRaw).toHaveBeenCalled();
       expect(prismaMock.member.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { currentBorrowedCount: { decrement: 1 } } }),
+        expect.objectContaining({
+          data: { currentBorrowedCount: { decrement: 1 } },
+        }),
       );
     });
 
@@ -467,7 +513,9 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
         notes: null,
       });
 
-      await expect(service.returnBook('brw-01', {})).rejects.toThrow(BadRequestException);
+      await expect(service.returnBook('brw-01', {})).rejects.toThrow(
+        BadRequestException,
+      );
 
       expect(prismaMock.borrowing.updateMany).not.toHaveBeenCalled();
       expect(prismaMock.$executeRaw).not.toHaveBeenCalled();
@@ -478,13 +526,17 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
       mockActiveLoan({ dueDate: new Date(Date.now() + 3 * DAY) });
       prismaMock.borrowing.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.returnBook('brw-01', {})).rejects.toThrow(ConflictException);
+      await expect(service.returnBook('brw-01', {})).rejects.toThrow(
+        ConflictException,
+      );
       expect(prismaMock.$executeRaw).not.toHaveBeenCalled();
     });
 
     it('không tìm thấy phiếu mượn -> 404', async () => {
       prismaMock.borrowing.findUnique.mockResolvedValue(null);
-      await expect(service.returnBook('khong-ton-tai', {})).rejects.toThrow(NotFoundException);
+      await expect(service.returnBook('khong-ton-tai', {})).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -525,10 +577,14 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
     it('gia hạn thành công: hạn trả cộng thêm 7 ngày, renewCount tăng lên 1, có ghi lịch sử', async () => {
       const loan = mockRenewableLoan();
 
-      const result = await service.renewLoan('brw-01', {});
+      const result = await service.renewLoan('brw-01', {}, memberActor);
 
       const updateCall = prismaMock.borrowing.updateMany.mock.calls[0][0];
-      expect(updateCall.where).toEqual({ id: 'brw-01', renewCount: 0, returnDate: null });
+      expect(updateCall.where).toEqual({
+        id: 'brw-01',
+        renewCount: 0,
+        returnDate: null,
+      });
       expect(updateCall.data.renewCount).toBe(1);
       expect(new Date(updateCall.data.dueDate).getTime()).toBe(
         new Date(loan.dueDate).getTime() + 7 * DAY,
@@ -550,17 +606,137 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
     it('đã dùng hết số lần gia hạn (1 lần) -> 400 và không đổi hạn trả', async () => {
       mockRenewableLoan({ renewCount: 1 });
 
-      await expect(service.renewLoan('brw-01', {})).rejects.toThrow(BadRequestException);
+      await expect(
+        service.renewLoan('brw-01', {}, memberActor),
+      ).rejects.toThrow(BadRequestException);
       expect(prismaMock.borrowing.updateMany).not.toHaveBeenCalled();
       expect(prismaMock.loanRenewal.create).not.toHaveBeenCalled();
+    });
+
+    it.each(['mem-other', null])(
+      'MEMBER có memberId=%s không phải chủ phiếu -> 403',
+      async (memberId) => {
+        // Quyền sở hữu được kiểm tra trước cả trạng thái đã trả.
+        mockRenewableLoan({
+          status: BorrowingStatus.RETURNED,
+          returnDate: new Date(),
+        });
+        const actor = { ...memberActor, memberId };
+
+        const detail = await service.findOne('brw-01', actor);
+        expect(detail).toMatchObject({
+          canRenew: false,
+          reasonCode: 'NOT_OWNER',
+        });
+        await expect(service.renewLoan('brw-01', {}, actor)).rejects.toThrow(
+          ForbiddenException,
+        );
+        expect(prismaMock.borrowing.updateMany).not.toHaveBeenCalled();
+        expect(prismaMock.loanRenewal.create).not.toHaveBeenCalled();
+        expect(prismaMock.reservation.count).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([UserRole.ADMIN, UserRole.LIBRARIAN])(
+      '%s được gia hạn thay chủ phiếu',
+      async (role) => {
+        mockRenewableLoan();
+        const actor = { id: 'staff-01', role, memberId: null };
+
+        expect(await service.findOne('brw-01', actor)).toMatchObject({
+          canRenew: true,
+          reasonCode: null,
+        });
+        await expect(
+          service.renewLoan('brw-01', {}, actor),
+        ).resolves.toMatchObject({ renewCount: 1 });
+      },
+    );
+
+    it('GET chi tiết cho MEMBER chủ phiếu biết được phép gia hạn', async () => {
+      mockRenewableLoan();
+      expect(await service.findOne('brw-01', memberActor)).toMatchObject({
+        id: 'brw-01',
+        memberId: 'mem-01',
+        canRenew: true,
+        reasonCode: null,
+        message: 'Phiếu mượn đủ điều kiện gia hạn',
+      });
+    });
+
+    it.each([
+      [
+        'INVALID_STATUS',
+        { status: BorrowingStatus.RETURNED, returnDate: new Date() },
+      ],
+      ['OVERDUE', { dueDate: new Date(Date.now() - 3 * DAY) }],
+      ['MAX_RENEWALS_REACHED', { renewCount: 1 }],
+    ])('GET và gia hạn thống nhất lý do %s', async (reasonCode, overrides) => {
+      mockRenewableLoan(overrides as Record<string, unknown>);
+      const detail = await service.findOne('brw-01', memberActor);
+
+      expect(detail).toMatchObject({ canRenew: false, reasonCode });
+      await expect(
+        service.renewLoan('brw-01', {}, memberActor),
+      ).rejects.toThrow(detail.message);
+      expect(prismaMock.borrowing.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('ngoài cửa sổ gia hạn: GET trả OUTSIDE_RENEWAL_WINDOW, ghi bị chặn', async () => {
+      Object.defineProperty(policy, 'renewWindowDays', { value: 1 });
+      mockRenewableLoan({ dueDate: new Date(Date.now() + 4 * DAY) });
+
+      const detail = await service.findOne('brw-01', memberActor);
+      expect(detail).toMatchObject({
+        canRenew: false,
+        reasonCode: 'OUTSIDE_RENEWAL_WINDOW',
+      });
+      await expect(
+        service.renewLoan('brw-01', {}, memberActor),
+      ).rejects.toThrow(detail.message);
+      expect(prismaMock.borrowing.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('GET chi tiết trả ACTIVE_RESERVATION và cùng thông báo với lỗi gia hạn', async () => {
+      mockRenewableLoan();
+      prismaMock.reservation.count.mockResolvedValue(1);
+
+      const detail = await service.findOne('brw-01', memberActor);
+      expect(detail).toMatchObject({
+        canRenew: false,
+        reasonCode: 'ACTIVE_RESERVATION',
+        message: 'Sách đã có người khác đặt trước',
+      });
+      await expect(
+        service.renewLoan('brw-01', {}, memberActor),
+      ).rejects.toThrow(detail.message);
+      expect(prismaMock.borrowing.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('ghi người gia hạn từ JWT, bỏ qua renewedBy do client tự khai', async () => {
+      mockRenewableLoan();
+      await service.renewLoan(
+        'brw-01',
+        { renewedBy: 'Admin giả' },
+        memberActor,
+      );
+      expect(prismaMock.loanRenewal.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ renewedBy: memberActor.id }),
+        }),
+      );
     });
 
     it('có độc giả khác đặt trước cuốn sách -> 409 Conflict, không cho gia hạn', async () => {
       mockRenewableLoan();
       prismaMock.reservation.count.mockResolvedValue(1);
 
-      await expect(service.renewLoan('brw-01', {})).rejects.toThrow(ConflictException);
-      await expect(service.renewLoan('brw-01', {})).rejects.toThrow(/đặt trước/i);
+      await expect(
+        service.renewLoan('brw-01', {}, memberActor),
+      ).rejects.toThrow(ConflictException);
+      await expect(
+        service.renewLoan('brw-01', {}, memberActor),
+      ).rejects.toThrow(/đặt trước/i);
       expect(prismaMock.borrowing.updateMany).not.toHaveBeenCalled();
     });
 
@@ -568,7 +744,7 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
       mockRenewableLoan();
       prismaMock.borrowing.updateMany.mockResolvedValue({ count: 1 });
 
-      await service.renewLoan('brw-01', {});
+      await service.renewLoan('brw-01', {}, memberActor);
 
       expect(prismaMock.reservation.count).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -587,14 +763,18 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
         status: BorrowingStatus.RETURNED,
       });
 
-      await expect(service.renewLoan('brw-01', {})).rejects.toThrow(/đã hoàn tất trả sách/i);
+      await expect(
+        service.renewLoan('brw-01', {}, memberActor),
+      ).rejects.toThrow(/đã hoàn tất trả sách/i);
       expect(prismaMock.borrowing.updateMany).not.toHaveBeenCalled();
     });
 
     it('phiếu đã quá hạn -> 400, không gia hạn', async () => {
       mockRenewableLoan({ dueDate: new Date(Date.now() - 3 * DAY) });
 
-      await expect(service.renewLoan('brw-01', {})).rejects.toThrow(/quá hạn/i);
+      await expect(
+        service.renewLoan('brw-01', {}, memberActor),
+      ).rejects.toThrow(/quá hạn/i);
       expect(prismaMock.borrowing.updateMany).not.toHaveBeenCalled();
     });
 
@@ -602,13 +782,17 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
       mockRenewableLoan();
       prismaMock.borrowing.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.renewLoan('brw-01', {})).rejects.toThrow(ConflictException);
+      await expect(
+        service.renewLoan('brw-01', {}, memberActor),
+      ).rejects.toThrow(ConflictException);
       expect(prismaMock.loanRenewal.create).not.toHaveBeenCalled();
     });
 
     it('không tìm thấy phiếu mượn -> 404', async () => {
       prismaMock.borrowing.findUnique.mockResolvedValue(null);
-      await expect(service.renewLoan('khong-ton-tai', {})).rejects.toThrow(NotFoundException);
+      await expect(
+        service.renewLoan('khong-ton-tai', {}, memberActor),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -658,7 +842,9 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
         finePaid: true,
       });
 
-      await expect(service.payFine('brw-01')).rejects.toThrow(/đã được thanh toán/i);
+      await expect(service.payFine('brw-01')).rejects.toThrow(
+        /đã được thanh toán/i,
+      );
     });
 
     it('phiếu không có tiền phạt -> 400', async () => {
@@ -668,7 +854,9 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
         finePaid: false,
       });
 
-      await expect(service.payFine('brw-01')).rejects.toThrow(/không có phát sinh tiền phạt/i);
+      await expect(service.payFine('brw-01')).rejects.toThrow(
+        /không có phát sinh tiền phạt/i,
+      );
     });
   });
 });

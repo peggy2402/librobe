@@ -1,5 +1,14 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { BorrowingItemStatus, BorrowingSlipStatus, ReturnCondition } from '@prisma/client';
+import {
+  ApiProperty,
+  ApiPropertyOptional,
+  IntersectionType,
+} from '@nestjs/swagger';
+import {
+  BorrowingItemStatus,
+  BorrowingSlipStatus,
+  ReturnCondition,
+} from '@prisma/client';
+import { RenewalEligibilityDto } from '../../loan-policy/dto/renewal-eligibility.dto.js';
 
 export class BorrowingSlipItemEntity {
   @ApiProperty({
@@ -224,3 +233,7 @@ export class BorrowingSlipEntity {
   updatedAt!: Date;
 }
 
+export class BorrowingSlipDetail extends IntersectionType(
+  BorrowingSlipEntity,
+  RenewalEligibilityDto,
+) {}

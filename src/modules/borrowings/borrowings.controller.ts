@@ -13,6 +13,7 @@ import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiCreatedResponse,
+  ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiConflictResponse,
   ApiOkResponse,
@@ -27,9 +28,11 @@ import { BorrowBookDto } from './dto/borrow-book.dto.js';
 import { FilterBorrowingDto } from './dto/filter-borrowing.dto.js';
 import { RenewLoanDto } from './dto/renew-loan.dto.js';
 import { ReturnBookDto } from './dto/return-book.dto.js';
-import { Borrowing } from './entities/borrowing.entity.js';
+import { Borrowing, BorrowingDetail } from './entities/borrowing.entity.js';
 import { LoanRenewalHistory } from './entities/loan-renewal.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import type { RenewalActor } from '../loan-policy/loan-eligibility.service.js';
 
 @ApiTags('Borrowings - Quản lý Mượn / Trả Sách')
 @ApiBearerAuth('JWT-auth')
@@ -82,7 +85,9 @@ export class BorrowingsController {
     description: 'Chỉ lấy khoản phạt của một độc giả',
     example: 'mem-01',
   })
-  @ApiOkResponse({ description: 'Tổng tiền phạt chưa thu và danh sách phiếu mượn liên quan' })
+  @ApiOkResponse({
+    description: 'Tổng tiền phạt chưa thu và danh sách phiếu mượn liên quan',
+  })
   getUnpaidFines(@Query('memberId') memberId?: string) {
     return this.borrowingsService.getUnpaidFines(memberId);
   }
@@ -90,10 +95,18 @@ export class BorrowingsController {
   @Get(':id/renewals')
   @ApiOperation({
     summary: 'Lịch sử gia hạn của một phiếu mượn',
-    description: 'Trả về audit trail từng lần gia hạn: hạn trả cũ, hạn trả mới, số ngày, người thực hiện.',
+    description:
+      'Trả về audit trail từng lần gia hạn: hạn trả cũ, hạn trả mới, số ngày, người thực hiện.',
   })
-  @ApiParam({ name: 'id', description: 'Mã ID của phiếu mượn', example: 'brw-01' })
-  @ApiOkResponse({ description: 'Danh sách lần gia hạn', type: [LoanRenewalHistory] })
+  @ApiParam({
+    name: 'id',
+    description: 'Mã ID của phiếu mượn',
+    example: 'brw-01',
+  })
+  @ApiOkResponse({
+    description: 'Danh sách lần gia hạn',
+    type: [LoanRenewalHistory],
+  })
   @ApiNotFoundResponse({ description: 'Không tìm thấy phiếu mượn' })
   getRenewalHistory(@Param('id') id: string): Promise<LoanRenewalHistory[]> {
     return this.borrowingsService.getRenewalHistory(id);
@@ -102,7 +115,8 @@ export class BorrowingsController {
   @Get(':id')
   @ApiOperation({
     summary: 'Lấy chi tiết một phiếu mượn sách',
-    description: 'Trả về thông tin chi tiết phiếu mượn, ngày hẹn trả, hạn phạt và lịch sử gia hạn.',
+    description:
+      'Trả về chi tiết phiếu mượn và canRenew, reasonCode, message theo người gọi và chính sách gia hạn hiện tại.',
   })
   @ApiParam({
     name: 'id',
@@ -111,13 +125,16 @@ export class BorrowingsController {
   })
   @ApiOkResponse({
     description: 'Chi tiết phiếu mượn',
-    type: Borrowing,
+    type: BorrowingDetail,
   })
   @ApiNotFoundResponse({
     description: 'Không tìm thấy phiếu mượn',
   })
-  findOne(@Param('id') id: string): Promise<Borrowing> {
-    return this.borrowingsService.findOne(id);
+  findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: RenewalActor,
+  ): Promise<BorrowingDetail> {
+    return this.borrowingsService.findOne(id, user);
   }
 
   @Post()
@@ -176,7 +193,10 @@ export class BorrowingsController {
   @ApiNotFoundResponse({
     description: 'Không tìm thấy phiếu mượn để trả sách',
   })
-  returnBook(@Param('id') id: string, @Body() dto: ReturnBookDto): Promise<Borrowing> {
+  returnBook(
+    @Param('id') id: string,
+    @Body() dto: ReturnBookDto,
+  ): Promise<Borrowing> {
     return this.borrowingsService.returnBook(id, dto);
   }
 
@@ -185,6 +205,7 @@ export class BorrowingsController {
   @ApiOperation({
     summary: 'Gia hạn thời gian mượn sách',
     description:
+      'ADMIN/LIBRARIAN được gia hạn thay độc giả; MEMBER chỉ được gia hạn lượt mượn của chính mình. ' +
       'Gia hạn thêm thời gian mượn (mặc định LOAN_RENEW_DAYS = 7 ngày, tối đa LOAN_RENEW_MAX_DAYS = 14 ngày mỗi lần). ' +
       'Điều kiện kiểm tra theo thứ tự: chưa trả sách -> chưa quá hạn -> chưa dùng hết số lần gia hạn ' +
       '(LOAN_RENEW_MAX_COUNT, mặc định 1 lần) -> cuốn sách không có độc giả khác đang đặt trước. ' +
@@ -209,8 +230,15 @@ export class BorrowingsController {
   @ApiNotFoundResponse({
     description: 'Không tìm thấy phiếu mượn để gia hạn',
   })
-  renewLoan(@Param('id') id: string, @Body() dto: RenewLoanDto): Promise<Borrowing> {
-    return this.borrowingsService.renewLoan(id, dto);
+  @ApiForbiddenResponse({
+    description: 'MEMBER không có thẻ độc giả hoặc không phải chủ phiếu mượn',
+  })
+  renewLoan(
+    @Param('id') id: string,
+    @Body() dto: RenewLoanDto,
+    @CurrentUser() user: RenewalActor,
+  ): Promise<Borrowing> {
+    return this.borrowingsService.renewLoan(id, dto, user);
   }
 
   @Post(':id/pay-fine')

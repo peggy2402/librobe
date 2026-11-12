@@ -1,9 +1,15 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   BorrowingItemStatus,
   BorrowingSlipStatus,
   MemberStatus,
   ReturnCondition,
+  UserRole,
 } from '@prisma/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BookStockService } from '../loan-policy/book-stock.service.js';
@@ -12,11 +18,17 @@ import { LoanPolicyService } from '../loan-policy/loan-policy.service.js';
 import { BorrowingSlipsService } from './borrowing-slips.service.js';
 
 const DAY = 24 * 60 * 60 * 1000;
+const memberActor = {
+  id: 'user-01',
+  role: UserRole.MEMBER,
+  memberId: 'mem-01',
+};
 
 describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => {
   let service: BorrowingSlipsService;
   let prismaMock: any;
   let reservationsMock: any;
+  let policy: LoanPolicyService;
 
   const mockMember = {
     id: 'mem-01',
@@ -28,8 +40,16 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
     currentBorrowedCount: 2,
     // Đang mượn 2 cuốn qua phiếu mượn lẻ
     borrowings: [
-      { id: 'brw-a', status: 'BORROWED', dueDate: new Date(Date.now() + 10 * DAY) },
-      { id: 'brw-b', status: 'BORROWED', dueDate: new Date(Date.now() + 10 * DAY) },
+      {
+        id: 'brw-a',
+        status: 'BORROWED',
+        dueDate: new Date(Date.now() + 10 * DAY),
+      },
+      {
+        id: 'brw-b',
+        status: 'BORROWED',
+        dueDate: new Date(Date.now() + 10 * DAY),
+      },
     ],
     borrowingSlips: [],
   };
@@ -106,11 +126,17 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
       promoteQueueAfterReturn: vi.fn().mockResolvedValue(0),
     };
 
-    const policy = new LoanPolicyService();
+    policy = new LoanPolicyService();
     const eligibility = new LoanEligibilityService(prismaMock, policy);
     const stock = new BookStockService();
 
-    service = new BorrowingSlipsService(prismaMock, policy, eligibility, stock, reservationsMock);
+    service = new BorrowingSlipsService(
+      prismaMock,
+      policy,
+      eligibility,
+      stock,
+      reservationsMock,
+    );
   });
 
   describe('Tình huống 1 - Lập phiếu mượn nhiều cuốn thành công', () => {
@@ -229,10 +255,15 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
     });
 
     it('còn nợ tiền phạt chưa thanh toán -> 400', async () => {
-      prismaMock.borrowingSlip.aggregate.mockResolvedValue({ _sum: { totalFine: 25_000 } });
+      prismaMock.borrowingSlip.aggregate.mockResolvedValue({
+        _sum: { totalFine: 25_000 },
+      });
 
       await expect(
-        service.create({ memberId: 'mem-01', items: [{ bookId: 'book-01', quantity: 1 }] }),
+        service.create({
+          memberId: 'mem-01',
+          items: [{ bookId: 'book-01', quantity: 1 }],
+        }),
       ).rejects.toThrow(/nợ tiền phạt/i);
     });
 
@@ -282,7 +313,12 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
 
     it('phê duyệt thành công -> trừ kho atomic theo đúng số lượng từng dòng', async () => {
       mockPendingSlip([
-        { id: 'item-01', bookId: 'book-01', quantity: 2, book: { title: 'Clean Code' } },
+        {
+          id: 'item-01',
+          bookId: 'book-01',
+          quantity: 2,
+          book: { title: 'Clean Code' },
+        },
       ]);
 
       await service.approve('slip-01', 'thuthu@librobe.vn');
@@ -297,7 +333,9 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
         }),
       );
       expect(prismaMock.member.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { currentBorrowedCount: { increment: 2 } } }),
+        expect.objectContaining({
+          data: { currentBorrowedCount: { increment: 2 } },
+        }),
       );
     });
 
@@ -310,17 +348,26 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
         items: [],
       });
 
-      await expect(service.approve('slip-01')).rejects.toThrow(ConflictException);
+      await expect(service.approve('slip-01')).rejects.toThrow(
+        ConflictException,
+      );
       expect(prismaMock.book.updateMany).not.toHaveBeenCalled();
     });
 
     it('sách bị giành mất ngay lúc duyệt -> 409 và rollback (không tăng số sách của độc giả)', async () => {
       mockPendingSlip([
-        { id: 'item-01', bookId: 'book-01', quantity: 2, book: { title: 'Clean Code' } },
+        {
+          id: 'item-01',
+          bookId: 'book-01',
+          quantity: 2,
+          book: { title: 'Clean Code' },
+        },
       ]);
       prismaMock.book.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.approve('slip-01')).rejects.toThrow(ConflictException);
+      await expect(service.approve('slip-01')).rejects.toThrow(
+        ConflictException,
+      );
       expect(prismaMock.member.update).not.toHaveBeenCalled();
     });
   });
@@ -386,7 +433,13 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
       mockIssuedSlip({ dueDate: new Date(Date.now() + 5 * DAY) });
 
       await service.returnItems('slip-01', {
-        items: [{ itemId: 'item-01', returnCondition: ReturnCondition.GOOD, quantity: 1 }],
+        items: [
+          {
+            itemId: 'item-01',
+            returnCondition: ReturnCondition.GOOD,
+            quantity: 1,
+          },
+        ],
       });
 
       const itemCall = prismaMock.borrowingSlipItem.updateMany.mock.calls[0][0];
@@ -403,7 +456,13 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
       mockIssuedSlip({ dueDate: new Date(Date.now() - 5 * DAY) });
 
       await service.returnItems('slip-01', {
-        items: [{ itemId: 'item-01', returnCondition: ReturnCondition.GOOD, quantity: 1 }],
+        items: [
+          {
+            itemId: 'item-01',
+            returnCondition: ReturnCondition.GOOD,
+            quantity: 1,
+          },
+        ],
       });
 
       const itemCall = prismaMock.borrowingSlipItem.updateMany.mock.calls[0][0];
@@ -422,8 +481,16 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
 
       await service.returnItems('slip-01', {
         items: [
-          { itemId: 'item-01', returnCondition: ReturnCondition.GOOD, quantity: 1 },
-          { itemId: 'item-02', returnCondition: ReturnCondition.GOOD, quantity: 1 },
+          {
+            itemId: 'item-01',
+            returnCondition: ReturnCondition.GOOD,
+            quantity: 1,
+          },
+          {
+            itemId: 'item-02',
+            returnCondition: ReturnCondition.GOOD,
+            quantity: 1,
+          },
         ],
       });
 
@@ -436,7 +503,13 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
       mockIssuedSlip({ dueDate: new Date(Date.now() + 5 * DAY) });
 
       await service.returnItems('slip-01', {
-        items: [{ itemId: 'item-01', returnCondition: ReturnCondition.LOST, quantity: 1 }],
+        items: [
+          {
+            itemId: 'item-01',
+            returnCondition: ReturnCondition.LOST,
+            quantity: 1,
+          },
+        ],
       });
 
       const itemCall = prismaMock.borrowingSlipItem.updateMany.mock.calls[0][0];
@@ -471,7 +544,13 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
 
       await expect(
         service.returnItems('slip-01', {
-          items: [{ itemId: 'item-01', returnCondition: ReturnCondition.GOOD, quantity: 1 }],
+          items: [
+            {
+              itemId: 'item-01',
+              returnCondition: ReturnCondition.GOOD,
+              quantity: 1,
+            },
+          ],
         }),
       ).rejects.toThrow(/đã được hoàn tất trước đó/);
 
@@ -484,7 +563,13 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
 
       await expect(
         service.returnItems('slip-01', {
-          items: [{ itemId: 'item-01', returnCondition: ReturnCondition.GOOD, quantity: 5 }],
+          items: [
+            {
+              itemId: 'item-01',
+              returnCondition: ReturnCondition.GOOD,
+              quantity: 5,
+            },
+          ],
         }),
       ).rejects.toThrow(/không thể xử lý 5 cuốn/);
     });
@@ -495,8 +580,16 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
       await expect(
         service.returnItems('slip-01', {
           items: [
-            { itemId: 'item-01', returnCondition: ReturnCondition.GOOD, quantity: 1 },
-            { itemId: 'item-01', returnCondition: ReturnCondition.GOOD, quantity: 1 },
+            {
+              itemId: 'item-01',
+              returnCondition: ReturnCondition.GOOD,
+              quantity: 1,
+            },
+            {
+              itemId: 'item-01',
+              returnCondition: ReturnCondition.GOOD,
+              quantity: 1,
+            },
           ],
         }),
       ).rejects.toThrow(/bị khai báo trùng/);
@@ -508,7 +601,13 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
 
       await expect(
         service.returnItems('slip-01', {
-          items: [{ itemId: 'item-01', returnCondition: ReturnCondition.GOOD, quantity: 1 }],
+          items: [
+            {
+              itemId: 'item-01',
+              returnCondition: ReturnCondition.GOOD,
+              quantity: 1,
+            },
+          ],
         }),
       ).rejects.toThrow(ConflictException);
     });
@@ -554,7 +653,7 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
     it('gia hạn thành công -> hạn trả +7 ngày, renewCount = 1, ghi lịch sử', async () => {
       const slip = mockRenewableSlip();
 
-      const result = await service.renew('slip-01', {});
+      const result = await service.renew('slip-01', {}, memberActor);
 
       const call = prismaMock.borrowingSlip.updateMany.mock.calls[0][0];
       expect(call.data.renewCount).toBe(1);
@@ -564,7 +663,11 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
       expect(result.renewCount).toBe(1);
       expect(prismaMock.loanRenewal.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ slipId: 'slip-01', sequence: 1, extraDays: 7 }),
+          data: expect.objectContaining({
+            slipId: 'slip-01',
+            sequence: 1,
+            extraDays: 7,
+          }),
         }),
       );
     });
@@ -572,28 +675,192 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
     it('đã gia hạn 1 lần -> 400', async () => {
       mockRenewableSlip({ renewCount: 1 });
 
-      await expect(service.renew('slip-01', {})).rejects.toThrow(/số lần gia hạn tối đa/);
+      await expect(service.renew('slip-01', {}, memberActor)).rejects.toThrow(
+        /số lần gia hạn tối đa/,
+      );
       expect(prismaMock.borrowingSlip.updateMany).not.toHaveBeenCalled();
+    });
+
+    it.each(['mem-other', null])(
+      'MEMBER có memberId=%s không phải chủ phiếu -> 403',
+      async (memberId) => {
+        mockRenewableSlip({ status: BorrowingSlipStatus.COMPLETED });
+        const actor = { ...memberActor, memberId };
+
+        expect(await service.findOne('slip-01', actor)).toMatchObject({
+          canRenew: false,
+          reasonCode: 'NOT_OWNER',
+        });
+        await expect(service.renew('slip-01', {}, actor)).rejects.toThrow(
+          ForbiddenException,
+        );
+        expect(prismaMock.borrowingSlip.updateMany).not.toHaveBeenCalled();
+        expect(prismaMock.loanRenewal.create).not.toHaveBeenCalled();
+        expect(prismaMock.reservation.count).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([UserRole.ADMIN, UserRole.LIBRARIAN])(
+      '%s được gia hạn thay chủ phiếu',
+      async (role) => {
+        mockRenewableSlip();
+        const actor = { id: 'staff-01', role, memberId: null };
+
+        expect(await service.findOne('slip-01', actor)).toMatchObject({
+          canRenew: true,
+          reasonCode: null,
+        });
+        await expect(
+          service.renew('slip-01', {}, actor),
+        ).resolves.toMatchObject({ renewCount: 1 });
+      },
+    );
+
+    it('GET chi tiết cho MEMBER chủ phiếu biết được phép gia hạn', async () => {
+      mockRenewableSlip();
+      expect(await service.findOne('slip-01', memberActor)).toMatchObject({
+        id: 'slip-01',
+        memberId: 'mem-01',
+        canRenew: true,
+        reasonCode: null,
+        message: 'Phiếu mượn đủ điều kiện gia hạn',
+      });
+    });
+
+    it.each([
+      ['INVALID_STATUS', { status: BorrowingSlipStatus.PENDING_APPROVAL }],
+      ['INVALID_STATUS', { status: BorrowingSlipStatus.COMPLETED }],
+      ['OVERDUE', { dueDate: new Date(Date.now() - 3 * DAY) }],
+      ['MAX_RENEWALS_REACHED', { renewCount: 1 }],
+    ])('GET và gia hạn thống nhất lý do %s', async (reasonCode, overrides) => {
+      mockRenewableSlip(overrides as Record<string, unknown>);
+      const detail = await service.findOne('slip-01', memberActor);
+
+      expect(detail).toMatchObject({ canRenew: false, reasonCode });
+      await expect(service.renew('slip-01', {}, memberActor)).rejects.toThrow(
+        detail.message,
+      );
+      expect(prismaMock.borrowingSlip.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('ngoài cửa sổ gia hạn: GET trả OUTSIDE_RENEWAL_WINDOW, ghi bị chặn', async () => {
+      Object.defineProperty(policy, 'renewWindowDays', { value: 1 });
+      mockRenewableSlip({ dueDate: new Date(Date.now() + 4 * DAY) });
+
+      const detail = await service.findOne('slip-01', memberActor);
+      expect(detail).toMatchObject({
+        canRenew: false,
+        reasonCode: 'OUTSIDE_RENEWAL_WINDOW',
+      });
+      await expect(service.renew('slip-01', {}, memberActor)).rejects.toThrow(
+        detail.message,
+      );
+    });
+
+    it('GET chi tiết trả ACTIVE_RESERVATION và cùng thông báo với lỗi gia hạn', async () => {
+      mockRenewableSlip();
+      prismaMock.reservation.count.mockResolvedValue(1);
+
+      const detail = await service.findOne('slip-01', memberActor);
+      expect(detail).toMatchObject({
+        canRenew: false,
+        reasonCode: 'ACTIVE_RESERVATION',
+        message: 'Sách đã có người khác đặt trước',
+      });
+      await expect(service.renew('slip-01', {}, memberActor)).rejects.toThrow(
+        detail.message,
+      );
+      expect(prismaMock.borrowingSlip.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('phiếu đã trả một phần: chỉ kiểm tra reservation trên sách còn đang mượn', async () => {
+      const slip = mockRenewableSlip();
+      mockRenewableSlip({
+        status: BorrowingSlipStatus.PARTIAL_RETURNED,
+        items: [
+          ...slip.items,
+          {
+            ...slip.items[0],
+            bookId: 'book-returned',
+            status: BorrowingItemStatus.RETURNED,
+          },
+          {
+            ...slip.items[0],
+            bookId: 'book-lost',
+            status: BorrowingItemStatus.LOST,
+          },
+        ],
+      });
+      prismaMock.reservation.count.mockImplementation(
+        ({ where }: { where: { bookId: string } }) =>
+          Promise.resolve(where.bookId === 'book-01' ? 0 : 1),
+      );
+
+      expect(await service.findOne('slip-01', memberActor)).toMatchObject({
+        canRenew: true,
+      });
+      await expect(
+        service.renew('slip-01', {}, memberActor),
+      ).resolves.toMatchObject({ renewCount: 1 });
+      expect(prismaMock.reservation.count).toHaveBeenCalledTimes(2);
+      expect(prismaMock.reservation.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ bookId: 'book-01' }),
+        }),
+      );
+    });
+
+    it('ghi người gia hạn từ JWT, bỏ qua renewedBy do client tự khai', async () => {
+      mockRenewableSlip();
+      await service.renew('slip-01', { renewedBy: 'Admin giả' }, memberActor);
+      expect(prismaMock.loanRenewal.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ renewedBy: memberActor.id }),
+        }),
+      );
+    });
+
+    it('hai request gia hạn đồng thời: request thua nhận 409, không ghi lịch sử', async () => {
+      mockRenewableSlip();
+      prismaMock.borrowingSlip.updateMany.mockResolvedValue({ count: 0 });
+      await expect(service.renew('slip-01', {}, memberActor)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(prismaMock.loanRenewal.create).not.toHaveBeenCalled();
+    });
+
+    it('phiếu không tồn tại -> 404', async () => {
+      prismaMock.borrowingSlip.findUnique.mockResolvedValue(null);
+      await expect(service.renew('slip-01', {}, memberActor)).rejects.toThrow(
+        NotFoundException,
+      );
+      await expect(service.findOne('slip-01', memberActor)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('có độc giả khác đặt trước sách trong phiếu -> 409', async () => {
       mockRenewableSlip();
       prismaMock.reservation.count.mockResolvedValue(2);
 
-      await expect(service.renew('slip-01', {})).rejects.toThrow(ConflictException);
+      await expect(service.renew('slip-01', {}, memberActor)).rejects.toThrow(
+        ConflictException,
+      );
       expect(prismaMock.borrowingSlip.updateMany).not.toHaveBeenCalled();
     });
 
     it('phiếu đã quá hạn -> 400', async () => {
       mockRenewableSlip({ dueDate: new Date(Date.now() - 2 * DAY) });
 
-      await expect(service.renew('slip-01', {})).rejects.toThrow(/quá hạn/i);
+      await expect(service.renew('slip-01', {}, memberActor)).rejects.toThrow(
+        /quá hạn/i,
+      );
     });
 
     it('phiếu đã hoàn tất trả sách -> 400', async () => {
       mockRenewableSlip({ status: BorrowingSlipStatus.COMPLETED });
 
-      await expect(service.renew('slip-01', {})).rejects.toThrow(
+      await expect(service.renew('slip-01', {}, memberActor)).rejects.toThrow(
         /BORROWED hoặc PARTIAL_RETURNED/,
       );
     });
@@ -634,7 +901,9 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
         finePaid: true,
       });
 
-      await expect(service.payFine('slip-01')).rejects.toThrow(/đã được thanh toán/i);
+      await expect(service.payFine('slip-01')).rejects.toThrow(
+        /đã được thanh toán/i,
+      );
     });
   });
 });

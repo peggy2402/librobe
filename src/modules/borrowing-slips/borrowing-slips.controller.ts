@@ -16,6 +16,7 @@ import {
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -27,13 +28,23 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { BorrowingSlipsService } from './borrowing-slips.service.js';
 import { CreateBorrowingSlipDto } from './dto/create-borrowing-slip.dto.js';
 import { FilterBorrowingSlipDto } from './dto/filter-borrowing-slip.dto.js';
-import { CancelBorrowingSlipDto, RejectBorrowingSlipDto } from './dto/reject-borrowing-slip.dto.js';
+import {
+  CancelBorrowingSlipDto,
+  RejectBorrowingSlipDto,
+} from './dto/reject-borrowing-slip.dto.js';
 import { RenewSlipDto } from './dto/renew-slip.dto.js';
 import { ReturnSlipItemsDto } from './dto/return-slip-items.dto.js';
-import { BorrowingSlipEntity } from './entities/borrowing-slip.entity.js';
+import {
+  BorrowingSlipDetail,
+  BorrowingSlipEntity,
+} from './entities/borrowing-slip.entity.js';
 import { LoanRenewalHistory } from '../borrowings/entities/loan-renewal.entity.js';
+import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import type { RenewalActor } from '../loan-policy/loan-eligibility.service.js';
 
-@ApiTags('Borrowing Slips - Quản lý Phiếu Mượn Sách ERP (Master - Detail & Workflow)')
+@ApiTags(
+  'Borrowing Slips - Quản lý Phiếu Mượn Sách ERP (Master - Detail & Workflow)',
+)
 @ApiBearerAuth('JWT-auth')
 @ApiUnauthorizedResponse({
   description: 'Thiếu Bearer Token hoặc Token không hợp lệ/hết hạn',
@@ -60,7 +71,8 @@ export class BorrowingSlipsController {
   @Get(':id')
   @ApiOperation({
     summary: 'Lấy thông tin chi tiết một phiếu mượn kèm các dòng sách',
-    description: 'Trả về toàn bộ thông tin phiếu mượn cha và danh sách các dòng sách chi tiết con.',
+    description:
+      'Trả về phiếu mượn, các dòng sách và canRenew, reasonCode, message theo người gọi và chính sách gia hạn hiện tại.',
   })
   @ApiParam({
     name: 'id',
@@ -69,13 +81,16 @@ export class BorrowingSlipsController {
   })
   @ApiOkResponse({
     description: 'Chi tiết phiếu mượn Master - Detail',
-    type: BorrowingSlipEntity,
+    type: BorrowingSlipDetail,
   })
   @ApiNotFoundResponse({
     description: 'Không tìm thấy phiếu mượn với ID chỉ định',
   })
-  findOne(@Param('id') id: string): Promise<BorrowingSlipEntity> {
-    return this.slipsService.findOne(id);
+  findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: RenewalActor,
+  ): Promise<BorrowingSlipDetail> {
+    return this.slipsService.findOne(id, user);
   }
 
   @Post()
@@ -118,7 +133,10 @@ export class BorrowingSlipsController {
   @ApiConflictResponse({
     description: 'Phiếu đã được xử lý trước đó (409) hoặc sách bị hết do xung đột đồng thời',
   })
-  approve(@Param('id') id: string, @Req() req: any): Promise<BorrowingSlipEntity> {
+  approve(
+    @Param('id') id: string,
+    @Req() req: any,
+  ): Promise<BorrowingSlipEntity> {
     const approver = req.user?.email || 'Librarian';
     return this.slipsService.approve(id, approver);
   }
@@ -141,7 +159,10 @@ export class BorrowingSlipsController {
   @ApiConflictResponse({
     description: 'Phiếu mượn không ở trạng thái chờ duyệt',
   })
-  reject(@Param('id') id: string, @Body() dto: RejectBorrowingSlipDto): Promise<BorrowingSlipEntity> {
+  reject(
+    @Param('id') id: string,
+    @Body() dto: RejectBorrowingSlipDto,
+  ): Promise<BorrowingSlipEntity> {
     return this.slipsService.reject(id, dto);
   }
 
@@ -164,7 +185,10 @@ export class BorrowingSlipsController {
   @ApiConflictResponse({
     description: 'Phiếu mượn đã hoàn tất hoặc đã bị hủy trước đó',
   })
-  cancel(@Param('id') id: string, @Body() dto: CancelBorrowingSlipDto): Promise<BorrowingSlipEntity> {
+  cancel(
+    @Param('id') id: string,
+    @Body() dto: CancelBorrowingSlipDto,
+  ): Promise<BorrowingSlipEntity> {
     return this.slipsService.cancel(id, dto);
   }
 
@@ -187,7 +211,10 @@ export class BorrowingSlipsController {
   @ApiBadRequestResponse({
     description: 'Phiếu không ở trạng thái đang mượn hoặc dữ liệu trả sách không hợp lệ',
   })
-  returnItems(@Param('id') id: string, @Body() dto: ReturnSlipItemsDto): Promise<BorrowingSlipEntity> {
+  returnItems(
+    @Param('id') id: string,
+    @Body() dto: ReturnSlipItemsDto,
+  ): Promise<BorrowingSlipEntity> {
     return this.slipsService.returnItems(id, dto);
   }
 
@@ -196,12 +223,20 @@ export class BorrowingSlipsController {
   @ApiOperation({
     summary: 'Gia hạn hạn trả của phiếu mượn',
     description:
+      'ADMIN/LIBRARIAN được gia hạn thay độc giả; MEMBER chỉ được gia hạn phiếu mượn của chính mình. ' +
       'Cộng thêm số ngày vào hạn trả của toàn bộ phiếu (mặc định LOAN_RENEW_DAYS = 7 ngày). ' +
       'Điều kiện: phiếu đang BORROWED/PARTIAL_RETURNED, chưa quá hạn, chưa dùng hết số lần gia hạn ' +
       '(LOAN_RENEW_MAX_COUNT, mặc định 1 lần) và không cuốn nào trong phiếu đang có độc giả khác đặt trước.',
   })
-  @ApiParam({ name: 'id', description: 'Mã ID phiếu mượn cần gia hạn', example: 'slip-01' })
-  @ApiOkResponse({ description: 'Gia hạn thành công, dueDate đã được cập nhật', type: BorrowingSlipEntity })
+  @ApiParam({
+    name: 'id',
+    description: 'Mã ID phiếu mượn cần gia hạn',
+    example: 'slip-01',
+  })
+  @ApiOkResponse({
+    description: 'Gia hạn thành công, dueDate đã được cập nhật',
+    type: BorrowingSlipEntity,
+  })
   @ApiBadRequestResponse({
     description: 'Phiếu không ở trạng thái đang mượn, đã quá hạn, hoặc đã dùng hết số lần gia hạn',
   })
@@ -209,8 +244,15 @@ export class BorrowingSlipsController {
     description: 'Sách trong phiếu đang có độc giả khác đặt trước, hoặc phiếu vừa được gia hạn bởi giao dịch khác',
   })
   @ApiNotFoundResponse({ description: 'Không tìm thấy phiếu mượn' })
-  renew(@Param('id') id: string, @Body() dto: RenewSlipDto): Promise<BorrowingSlipEntity> {
-    return this.slipsService.renew(id, dto);
+  @ApiForbiddenResponse({
+    description: 'MEMBER không có thẻ độc giả hoặc không phải chủ phiếu mượn',
+  })
+  renew(
+    @Param('id') id: string,
+    @Body() dto: RenewSlipDto,
+    @CurrentUser() user: RenewalActor,
+  ): Promise<BorrowingSlipEntity> {
+    return this.slipsService.renew(id, dto, user);
   }
 
   @Get(':id/renewals')
@@ -219,7 +261,10 @@ export class BorrowingSlipsController {
     description: 'Audit trail từng lần gia hạn: hạn trả cũ, hạn trả mới, số ngày, người thực hiện.',
   })
   @ApiParam({ name: 'id', description: 'Mã ID phiếu mượn', example: 'slip-01' })
-  @ApiOkResponse({ description: 'Danh sách lần gia hạn', type: [LoanRenewalHistory] })
+  @ApiOkResponse({
+    description: 'Danh sách lần gia hạn',
+    type: [LoanRenewalHistory],
+  })
   @ApiNotFoundResponse({ description: 'Không tìm thấy phiếu mượn' })
   getRenewalHistory(@Param('id') id: string): Promise<LoanRenewalHistory[]> {
     return this.slipsService.getRenewalHistory(id);
@@ -233,12 +278,21 @@ export class BorrowingSlipsController {
       'Ghi nhận độc giả đã nộp đủ tiền phạt và bồi thường của phiếu. Thao tác này độc lập với việc trả sách: ' +
       'phiếu đã COMPLETED vẫn có thể còn finePaid = false cho tới khi thu đủ tiền.',
   })
-  @ApiParam({ name: 'id', description: 'Mã ID phiếu mượn có phát sinh tiền phạt', example: 'slip-01' })
-  @ApiOkResponse({ description: 'Đã ghi nhận thanh toán tiền phạt', type: BorrowingSlipEntity })
-  @ApiBadRequestResponse({ description: 'Phiếu không có tiền phạt hoặc đã thanh toán trước đó' })
+  @ApiParam({
+    name: 'id',
+    description: 'Mã ID phiếu mượn có phát sinh tiền phạt',
+    example: 'slip-01',
+  })
+  @ApiOkResponse({
+    description: 'Đã ghi nhận thanh toán tiền phạt',
+    type: BorrowingSlipEntity,
+  })
+  @ApiBadRequestResponse({
+    description: 'Phiếu không có tiền phạt hoặc đã thanh toán trước đó',
+  })
   @ApiNotFoundResponse({ description: 'Không tìm thấy phiếu mượn' })
   payFine(@Param('id') id: string): Promise<BorrowingSlipEntity> {
     return this.slipsService.payFine(id);
   }
-}
 
+}
