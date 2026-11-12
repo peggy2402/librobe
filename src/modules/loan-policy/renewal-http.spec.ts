@@ -73,6 +73,7 @@ describe('Renewal HTTP authorization and detail contract', () => {
           })),
       },
       borrowing: {
+        aggregate: vi.fn().mockResolvedValue({ _sum: { fineAmount: 0 } }),
         findUnique: vi.fn().mockResolvedValue(loan),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         findUniqueOrThrow: vi
@@ -80,6 +81,7 @@ describe('Renewal HTTP authorization and detail contract', () => {
           .mockResolvedValue({ ...loan, renewCount: 1 }),
       },
       borrowingSlip: {
+        aggregate: vi.fn().mockResolvedValue({ _sum: { totalFine: 0 } }),
         findUnique: vi.fn().mockResolvedValue(slip),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         findUniqueOrThrow: vi
@@ -88,7 +90,25 @@ describe('Renewal HTTP authorization and detail contract', () => {
       },
       reservation: { count: vi.fn().mockResolvedValue(0) },
       loanRenewal: { create: vi.fn().mockResolvedValue({}) },
+      member: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'mem-01',
+          cardNumber: 'TEST-01',
+          fullName: 'Test member',
+          status: 'ACTIVE',
+          maxBorrowLimit: 5,
+          currentBorrowedCount: 0,
+          membershipExpiry: new Date(Date.now() + 365 * 86400000),
+          borrowings: [],
+          borrowingSlips: [],
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      borrowingSlipItem: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
       $executeRaw: vi.fn().mockResolvedValue(0),
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'mem-01' }]),
       $transaction: vi
         .fn()
         .mockImplementation((arg: any) =>
@@ -271,14 +291,6 @@ describe('Renewal HTTP authorization and detail contract', () => {
       audit: true,
     },
     {
-      path: '/api/borrowing-slips/slip-01/cancel',
-      method: 'patch' as const,
-      service: BorrowingSlipsService,
-      action: 'cancel' as const,
-      body: { reason: 'Cancelled' },
-      audit: true,
-    },
-    {
       path: '/api/borrowing-slips/slip-01/return-items',
       method: 'post' as const,
       service: BorrowingSlipsService,
@@ -376,6 +388,144 @@ describe('Renewal HTTP authorization and detail contract', () => {
       );
     },
   );
+
+  describe('Member cancellation HTTP authorization', () => {
+    const path = '/api/borrowing-slips/slip-01/cancel';
+    beforeEach(() => {
+      prisma.borrowingSlip.findUnique.mockResolvedValue({
+        id: 'slip-01',
+        memberId: 'mem-01',
+        status: 'PENDING_APPROVAL',
+        items: [{ bookId: 'book-01', quantity: 2, status: 'PENDING' }],
+      });
+      prisma.borrowingSlip.findUniqueOrThrow.mockResolvedValue({
+        id: 'slip-01',
+        status: 'CANCELLED',
+        items: [],
+      });
+    });
+
+    it('requires authentication', async () => {
+      await request(app.getHttpServer())
+        .patch(path)
+        .send({ reason: 'Gửi nhầm' })
+        .expect(401);
+    });
+
+    it.each(['owner', 'admin', 'librarian'])(
+      'allows %s and records database identity despite forged fields',
+      async (sub) => {
+        await request(app.getHttpServer())
+          .patch(path)
+          .auth(
+            jwt.sign({
+              sub,
+              role: 'ADMIN',
+              memberId: 'mem-other',
+              email: 'forged@test.local',
+            }),
+            { type: 'bearer' },
+          )
+          .send({
+            reason: 'Gửi nhầm',
+            memberId: 'mem-other',
+            role: 'ADMIN',
+            cancelledBy: 'forged',
+            cancelledById: 'forged',
+          })
+          .expect(200)
+          .expect((res) => expect(res.body.status).toBe('CANCELLED'));
+        expect(prisma.borrowingSlip.updateMany).toHaveBeenCalledWith({
+          where: { id: 'slip-01', status: 'PENDING_APPROVAL' },
+          data: expect.objectContaining({
+            cancelledBy: `${sub}@library.test`,
+            cancelledById: sub,
+          }),
+        });
+        expect(prisma.member.update).not.toHaveBeenCalled();
+        expect(prisma.$executeRaw).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['other', 'unlinked'])(
+      'rejects %s despite a forged owner memberId',
+      async (sub) => {
+        await request(app.getHttpServer())
+          .patch(path)
+          .auth(jwt.sign({ sub, memberId: 'mem-01', role: 'ADMIN' }), {
+            type: 'bearer',
+          })
+          .send({ reason: 'Gửi nhầm', memberId: 'mem-01', role: 'ADMIN' })
+          .expect(403);
+        expect(prisma.borrowingSlip.updateMany).not.toHaveBeenCalled();
+        expect(prisma.borrowingSlipItem.updateMany).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      'BORROWED',
+      'PARTIAL_RETURNED',
+      'COMPLETED',
+      'REJECTED',
+      'CANCELLED',
+    ])('rejects owner cancellation in %s', async (status) => {
+      prisma.borrowingSlip.findUnique.mockResolvedValue({
+        memberId: 'mem-01',
+        status,
+        items: [],
+      });
+      await request(app.getHttpServer())
+        .patch(path)
+        .auth(jwt.sign({ sub: 'owner' }), { type: 'bearer' })
+        .send({ reason: 'Gửi nhầm' })
+        .expect(409);
+      expect(prisma.borrowingSlip.updateMany).not.toHaveBeenCalled();
+      expect(prisma.member.update).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 for a missing slip', async () => {
+      prisma.borrowingSlip.findUnique.mockResolvedValue(null);
+      await request(app.getHttpServer())
+        .patch(path)
+        .auth(jwt.sign({ sub: 'owner' }), { type: 'bearer' })
+        .send({ reason: 'Gửi nhầm' })
+        .expect(404);
+    });
+  });
+
+  it('returns the complete borrow limit contract through the global exception filter', async () => {
+    prisma.borrowingSlip.findUnique.mockResolvedValue({
+      id: 'slip-01',
+      memberId: 'mem-01',
+      status: 'PENDING_APPROVAL',
+      items: [{ bookId: 'book-01', quantity: 3 }],
+    });
+    const member = await prisma.member.findUnique();
+    prisma.member.findUnique.mockResolvedValue({
+      ...member,
+      borrowings: Array.from({ length: 3 }, () => ({
+        status: 'BORROWED',
+        dueDate: new Date(Date.now() + 86400000),
+      })),
+    });
+    const result = await request(app.getHttpServer())
+      .patch('/api/borrowing-slips/slip-01/approve')
+      .auth(jwt.sign({ sub: 'librarian' }), { type: 'bearer' })
+      .expect(409);
+    expect(result.body).toMatchObject({
+      statusCode: 409,
+      code: 'BORROW_LIMIT_EXCEEDED',
+      message: 'Vượt hạn mức mượn sách',
+      details: {
+        maxBorrowLimit: 5,
+        currentBorrowedCount: 3,
+        requestedQuantity: 3,
+        remainingBorrowLimit: 2,
+      },
+    });
+    expect(prisma.borrowingSlip.updateMany).not.toHaveBeenCalled();
+    expect(prisma.member.update).not.toHaveBeenCalled();
+  });
 
   it('documents eligibility fields on both detail response schemas', () => {
     const document = SwaggerModule.createDocument(

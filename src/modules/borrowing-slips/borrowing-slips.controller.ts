@@ -29,7 +29,8 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { BorrowingSlipsService } from './borrowing-slips.service.js';
-import type { SlipActor } from './borrowing-slips.service.js';
+import type { CancelSlipActor, SlipActor } from './borrowing-slips.service.js';
+import { ApiBorrowConflictResponse } from '../loan-policy/decorators/borrow-conflict-response.decorator.js';
 import { CreateBorrowingSlipDto } from './dto/create-borrowing-slip.dto.js';
 import { FilterBorrowingSlipDto } from './dto/filter-borrowing-slip.dto.js';
 import {
@@ -54,7 +55,7 @@ import type { RenewalActor } from '../loan-policy/loan-eligibility.service.js';
 })
 @ApiForbiddenResponse({
   description:
-    'Phê duyệt, từ chối, hủy, trả sách và thu phạt chỉ dành cho ADMIN hoặc LIBRARIAN',
+    'Thao tác tại quầy dành cho ADMIN/LIBRARIAN; MEMBER chỉ được hủy phiếu của chính mình khi còn chờ duyệt',
 })
 @Controller('borrowing-slips')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -112,12 +113,11 @@ export class BorrowingSlipsController {
     type: BorrowingSlipEntity,
   })
   @ApiBadRequestResponse({
-    description:
-      'Độc giả không đủ điều kiện hoặc yêu cầu vượt quá hạn mức mượn',
+    description: 'Độc giả không đủ điều kiện mượn sách',
   })
-  @ApiConflictResponse({
-    description: 'Số lượng sách trong kho không đủ đáp ứng',
-  })
+  @ApiBorrowConflictResponse(
+    'BORROW_LIMIT_EXCEEDED kèm details hạn mức, hoặc số lượng sách trong kho không đủ đáp ứng',
+  )
   create(@Body() dto: CreateBorrowingSlipDto): Promise<BorrowingSlipEntity> {
     return this.slipsService.create(dto);
   }
@@ -128,7 +128,7 @@ export class BorrowingSlipsController {
   @ApiOperation({
     summary: 'Phê duyệt xuất kho phiếu mượn (Approval Workflow)',
     description:
-      'Thủ thư duyệt phiếu mượn: kiểm tra khóa tồn kho chống Race Condition, trừ số lượng khả dụng trong kho và chuyển trạng thái sang BORROWED.',
+      'Khóa độc giả, kiểm tra lại điều kiện và hạn mức mượn, trừ kho atomic và chuyển phiếu sang BORROWED trong cùng transaction.',
   })
   @ApiParam({
     name: 'id',
@@ -139,9 +139,12 @@ export class BorrowingSlipsController {
     description: 'Phiếu mượn đã được phê duyệt và xuất kho thành công',
     type: BorrowingSlipEntity,
   })
-  @ApiConflictResponse({
+  @ApiBorrowConflictResponse(
+    'BORROW_LIMIT_EXCEEDED kèm details hạn mức; phiếu đã được xử lý hoặc sách hết do xung đột đồng thời',
+  )
+  @ApiBadRequestResponse({
     description:
-      'Phiếu đã được xử lý trước đó (409) hoặc sách bị hết do xung đột đồng thời',
+      'Độc giả không đủ điều kiện: thẻ không hợp lệ, quá hạn hoặc còn nợ phạt',
   })
   approve(
     @Param('id') id: string,
@@ -177,13 +180,13 @@ export class BorrowingSlipsController {
     return this.slipsService.reject(id, dto, actor);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
+  @Roles(UserRole.ADMIN, UserRole.LIBRARIAN, UserRole.MEMBER)
   @Patch(':id/cancel')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Hủy phiếu mượn sách',
     description:
-      'Hủy phiếu mượn khi độc giả đổi ý. Nếu sách đã xuất kho, hệ thống tự động hoàn lại tồn kho khả dụng.',
+      'MEMBER chỉ được hủy phiếu của chính mình ở trạng thái PENDING_APPROVAL. ADMIN/LIBRARIAN được hủy theo quy trình tại quầy; phiếu đã xuất kho được hoàn số sách còn lại.',
   })
   @ApiParam({
     name: 'id',
@@ -195,12 +198,16 @@ export class BorrowingSlipsController {
     type: BorrowingSlipEntity,
   })
   @ApiConflictResponse({
-    description: 'Phiếu mượn đã hoàn tất hoặc đã bị hủy trước đó',
+    description:
+      'Phiếu đã kết thúc, vừa được xử lý, hoặc MEMBER hủy phiếu không còn chờ duyệt',
+  })
+  @ApiForbiddenResponse({
+    description: 'MEMBER không có thẻ độc giả hoặc không phải chủ phiếu',
   })
   cancel(
     @Param('id') id: string,
     @Body() dto: CancelBorrowingSlipDto,
-    @CurrentUser() actor: SlipActor,
+    @CurrentUser() actor: CancelSlipActor,
   ): Promise<BorrowingSlipEntity> {
     return this.slipsService.cancel(id, dto, actor);
   }

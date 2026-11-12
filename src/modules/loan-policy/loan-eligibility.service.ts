@@ -153,7 +153,8 @@ export class LoanEligibilityService {
     );
 
     const overdueLoans = member.borrowings.filter(
-      (loan) => loan.status === 'OVERDUE' || this.policy.isOverdue(loan.dueDate, now),
+      (loan) =>
+        loan.status === 'OVERDUE' || this.policy.isOverdue(loan.dueDate, now),
     );
     const overdueSlips = member.borrowingSlips.filter((slip) =>
       this.policy.isOverdue(slip.dueDate, now),
@@ -207,8 +208,8 @@ export class LoanEligibilityService {
   }
 
   /**
-   * Chốt cửa trước khi ghi dữ liệu mượn. Ném lỗi nghiệp vụ 400 với thông điệp
-   * rõ ràng thay vì để luồng đi tiếp rồi tạo phiếu mượn không hợp lệ.
+   * Chốt cửa trước khi ghi dữ liệu mượn. Vượt hạn mức trả 409 kèm số lượng;
+   * các điều kiện thẻ, quá hạn và nợ phạt tiếp tục trả 400.
    *
    * @param requestedQuantity số cuốn độc giả xin mượn thêm trong lần này
    */
@@ -220,16 +221,25 @@ export class LoanEligibilityService {
   ): Promise<MemberLoanState> {
     const state = await this.getMemberLoanState(memberId, client, now);
 
-    if (!state.canBorrow && state.blockReason !== BorrowBlockReason.LIMIT_EXCEEDED) {
+    if (
+      !state.canBorrow &&
+      state.blockReason !== BorrowBlockReason.LIMIT_EXCEEDED
+    ) {
       throw new BadRequestException(state.reasonIfNotAllowed);
     }
 
     const quantity = Math.max(1, Math.trunc(requestedQuantity));
     if (quantity > state.remainingBorrowLimit) {
-      throw new BadRequestException(
-        `Vượt quá hạn mức mượn: độc giả "${state.fullName}" đang giữ ${state.currentBorrowedCount}/${state.maxBorrowLimit} cuốn, ` +
-          `chỉ còn được mượn thêm ${state.remainingBorrowLimit} cuốn nhưng yêu cầu ${quantity} cuốn`,
-      );
+      throw new ConflictException({
+        code: 'BORROW_LIMIT_EXCEEDED',
+        message: 'Vượt hạn mức mượn sách',
+        details: {
+          maxBorrowLimit: state.maxBorrowLimit,
+          currentBorrowedCount: state.currentBorrowedCount,
+          requestedQuantity: quantity,
+          remainingBorrowLimit: state.remainingBorrowLimit,
+        },
+      });
     }
 
     return state;

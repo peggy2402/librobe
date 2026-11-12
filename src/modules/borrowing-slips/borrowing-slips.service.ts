@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,6 +9,7 @@ import {
   BorrowingItemStatus,
   BorrowingSlipStatus,
   ReturnCondition,
+  UserRole,
 } from '@prisma/client';
 import { PaginatedResponseDto } from '../../common/dto/pagination.dto.js';
 import { BookStatus } from '../../common/enums/book-status.enum.js';
@@ -18,6 +20,10 @@ import {
 import { LoanEligibilityService } from '../loan-policy/loan-eligibility.service.js';
 import type { RenewalActor } from '../loan-policy/loan-eligibility.service.js';
 import { LoanPolicyService } from '../loan-policy/loan-policy.service.js';
+import {
+  lockMemberLoans,
+  MEMBER_LOAN_TRANSACTION_OPTIONS,
+} from '../loan-policy/member-loan-lock.js';
 import { LoanRenewalHistory } from '../borrowings/entities/loan-renewal.entity.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ReservationsService } from '../reservations/reservations.service.js';
@@ -45,6 +51,8 @@ export interface SlipActor {
   email: string;
 }
 
+export type CancelSlipActor = SlipActor & RenewalActor;
+
 @Injectable()
 export class BorrowingSlipsService {
   constructor(
@@ -54,6 +62,17 @@ export class BorrowingSlipsService {
     private readonly stock: BookStockService,
     private readonly reservations: ReservationsService,
   ) {}
+
+  private async lockSlipMember(tx: PrismaTx, id: string): Promise<void> {
+    const slip = await tx.borrowingSlip.findUnique({
+      where: { id },
+      select: { memberId: true },
+    });
+    if (!slip) {
+      throw new NotFoundException(`Không tìm thấy phiếu mượn với ID "${id}"`);
+    }
+    await lockMemberLoans(tx, slip.memberId);
+  }
 
   async findAll(
     filters: FilterBorrowingSlipDto,
@@ -150,8 +169,6 @@ export class BorrowingSlipsService {
    * sách dùng chung một bộ luật thay vì mỗi nơi tự kiểm tra một kiểu.
    */
   async create(dto: CreateBorrowingSlipDto): Promise<BorrowingSlipEntity> {
-    const now = new Date();
-
     if (
       dto.expectedReturnDays !== undefined &&
       dto.expectedReturnDays > this.policy.maxLoanDays
@@ -181,6 +198,8 @@ export class BorrowingSlipsService {
     );
 
     const createdSlip = await this.prisma.$transaction(async (tx) => {
+      await lockMemberLoans(tx, dto.memberId);
+      const now = new Date();
       // 1. Điều kiện của độc giả + hạn mức mượn cho TỔNG số cuốn yêu cầu
       await this.eligibility.assertCanBorrow(
         dto.memberId,
@@ -245,7 +264,7 @@ export class BorrowingSlipsService {
           items: { include: { book: true } },
         },
       });
-    });
+    }, MEMBER_LOAN_TRANSACTION_OPTIONS);
 
     return this.mapSlipToEntity(createdSlip);
   }
@@ -256,15 +275,16 @@ export class BorrowingSlipsService {
    * Code cũ đọc tồn kho bằng `findUnique` NGOÀI transaction rồi mới trừ kho,
    * nên hai phiếu cùng duyệt bản sách cuối cùng đều vượt qua vòng kiểm tra và
    * `copies_available` tụt xuống số âm. Ở đây:
+   *  - khóa member trước khi đọc lại phiếu và kiểm tra điều kiện/hạn mức;
    *  - chốt trạng thái phiếu bằng atomic update có điều kiện
    *    `status = PENDING_APPROVAL` -> chống double-click / duyệt trùng;
    *  - trừ kho bằng atomic conditional update -> chỉ một phiếu giành được bản
    *    sách cuối cùng, phiếu còn lại nhận 409 và rollback toàn bộ.
    */
   async approve(id: string, actor: SlipActor): Promise<BorrowingSlipEntity> {
-    const now = new Date();
-
     const updatedSlip = await this.prisma.$transaction(async (tx) => {
+      await this.lockSlipMember(tx, id);
+      const now = new Date();
       const slip = await tx.borrowingSlip.findUnique({
         where: { id },
         include: { items: { include: { book: { select: { title: true } } } } },
@@ -279,6 +299,9 @@ export class BorrowingSlipsService {
           `DOCUMENT_ALREADY_PROCESSED: Phiếu mượn này đang ở trạng thái "${slip.status}", không thể phê duyệt`,
         );
       }
+
+      const totalQty = slip.items.reduce((sum, item) => sum + item.quantity, 0);
+      await this.eligibility.assertCanBorrow(slip.memberId, totalQty, tx, now);
 
       // Chốt quyền xử lý chứng từ: chỉ một request đi tiếp được.
       const claimed = await tx.borrowingSlip.updateMany({
@@ -300,7 +323,9 @@ export class BorrowingSlipsService {
 
       // Trừ kho atomic cho từng dòng sách. Nếu bất kỳ dòng nào thiếu hàng,
       // exception sẽ rollback cả trạng thái phiếu vừa chốt ở trên.
-      for (const item of slip.items) {
+      for (const item of [...slip.items].sort((a, b) =>
+        a.bookId.localeCompare(b.bookId),
+      )) {
         await this.stock.decrementAvailable(
           tx,
           item.bookId,
@@ -314,7 +339,6 @@ export class BorrowingSlipsService {
         data: { status: BorrowingItemStatus.BORROWING },
       });
 
-      const totalQty = slip.items.reduce((sum, it) => sum + it.quantity, 0);
       await tx.member.update({
         where: { id: slip.memberId },
         data: { currentBorrowedCount: { increment: totalQty } },
@@ -334,7 +358,7 @@ export class BorrowingSlipsService {
         where: { id },
         include: { member: true, items: { include: { book: true } } },
       });
-    });
+    }, MEMBER_LOAN_TRANSACTION_OPTIONS);
 
     return this.mapSlipToEntity(updatedSlip);
   }
@@ -397,9 +421,8 @@ export class BorrowingSlipsService {
   async cancel(
     id: string,
     dto: CancelBorrowingSlipDto,
-    actor: SlipActor,
+    actor: CancelSlipActor,
   ): Promise<BorrowingSlipEntity> {
-    const now = new Date();
     const closedStatuses: string[] = [
       BorrowingSlipStatus.COMPLETED,
       BorrowingSlipStatus.REJECTED,
@@ -407,6 +430,8 @@ export class BorrowingSlipsService {
     ];
 
     const cancelled = await this.prisma.$transaction(async (tx) => {
+      await this.lockSlipMember(tx, id);
+      const now = new Date();
       const slip = await tx.borrowingSlip.findUnique({
         where: { id },
         include: { items: true },
@@ -414,6 +439,24 @@ export class BorrowingSlipsService {
 
       if (!slip) {
         throw new NotFoundException(`Không tìm thấy phiếu mượn với ID "${id}"`);
+      }
+
+      if (actor.role === UserRole.MEMBER) {
+        if (!actor.memberId || actor.memberId !== slip.memberId) {
+          throw new ForbiddenException(
+            'Bạn chỉ có thể hủy phiếu mượn của chính mình',
+          );
+        }
+        if (slip.status !== BorrowingSlipStatus.PENDING_APPROVAL) {
+          throw new ConflictException(
+            'Chỉ có thể hủy phiếu mượn đang chờ duyệt',
+          );
+        }
+      } else if (
+        actor.role !== UserRole.ADMIN &&
+        actor.role !== UserRole.LIBRARIAN
+      ) {
+        throw new ForbiddenException('Tài khoản không có quyền hủy phiếu mượn');
       }
 
       if (closedStatuses.includes(slip.status)) {
@@ -465,7 +508,9 @@ export class BorrowingSlipsService {
       // Chỉ hoàn kho khi chứng từ đã thực sự xuất kho trước đó.
       if (wasIssued) {
         let remainingTotalQty = 0;
-        for (const item of activeItems) {
+        for (const item of activeItems.sort((a, b) =>
+          a.bookId.localeCompare(b.bookId),
+        )) {
           const remaining = Math.max(
             0,
             item.quantity - item.returnedQuantity - item.lostQuantity,
@@ -488,7 +533,7 @@ export class BorrowingSlipsService {
         where: { id },
         include: { member: true, items: { include: { book: true } } },
       });
-    });
+    }, MEMBER_LOAN_TRANSACTION_OPTIONS);
 
     return this.mapSlipToEntity(cancelled);
   }
@@ -510,13 +555,14 @@ export class BorrowingSlipsService {
     id: string,
     dto: ReturnSlipItemsDto,
   ): Promise<BorrowingSlipEntity> {
-    const now = new Date();
     const returnableStatuses: string[] = [
       BorrowingSlipStatus.BORROWED,
       BorrowingSlipStatus.PARTIAL_RETURNED,
     ];
 
     const updatedSlip = await this.prisma.$transaction(async (tx) => {
+      await this.lockSlipMember(tx, id);
+      const now = new Date();
       const slip = await tx.borrowingSlip.findUnique({
         where: { id },
         include: { items: { include: { book: { select: { title: true } } } } },
@@ -540,7 +586,14 @@ export class BorrowingSlipsService {
       let totalProcessedQty = 0;
       const processedMap = new Map<string, number>();
 
-      for (const reqItem of dto.items) {
+      const returnItems = [...dto.items].sort((a, b) => {
+        const aBook =
+          slip.items.find((item) => item.id === a.itemId)?.bookId ?? '';
+        const bBook =
+          slip.items.find((item) => item.id === b.itemId)?.bookId ?? '';
+        return aBook.localeCompare(bBook);
+      });
+      for (const reqItem of returnItems) {
         const item = slip.items.find((it) => it.id === reqItem.itemId);
         if (!item) {
           throw new NotFoundException(
@@ -686,7 +739,7 @@ export class BorrowingSlipsService {
         where: { id },
         include: { member: true, items: { include: { book: true } } },
       });
-    });
+    }, MEMBER_LOAN_TRANSACTION_OPTIONS);
 
     return this.mapSlipToEntity(updatedSlip);
   }

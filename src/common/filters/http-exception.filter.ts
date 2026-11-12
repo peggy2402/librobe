@@ -21,6 +21,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message: string | string[] = 'Đã có lỗi nội bộ xảy ra trên máy chủ';
     let error = 'Internal Server Error';
+    let code: string | undefined;
+    let details: Record<string, unknown> | undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -31,6 +33,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
         const resObj = res as Record<string, any>;
         message = resObj.message || exception.message;
         error = resObj.error || exception.name;
+        if (typeof resObj.code === 'string') code = resObj.code;
+        if (
+          typeof resObj.details === 'object' &&
+          resObj.details !== null &&
+          !Array.isArray(resObj.details)
+        ) {
+          details = resObj.details;
+        }
       }
     } else if (this.isPrismaError(exception)) {
       // Lỗi tầng dữ liệu được dịch thành thông điệp nghiệp vụ.
@@ -45,7 +55,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
         exception instanceof Error ? exception.stack : undefined,
       );
     } else if (exception instanceof Error) {
-      this.logger.error(`Unhandled Exception: ${exception.message}`, exception.stack);
+      this.logger.error(
+        `Unhandled Exception: ${exception.message}`,
+        exception.stack,
+      );
       // Không lộ message gốc của lỗi hệ thống ra ngoài.
     }
 
@@ -53,6 +66,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       statusCode: status,
       error,
       message,
+      ...(code !== undefined ? { code } : {}),
+      ...(details !== undefined ? { details } : {}),
       timestamp: new Date().toISOString(),
       path: request.url,
       method: request.method,
@@ -78,7 +93,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
           return {
             status: HttpStatus.CONFLICT,
             error: 'Conflict',
-            message: 'Dữ liệu đã tồn tại trong hệ thống, vui lòng kiểm tra lại thông tin',
+            message:
+              'Dữ liệu đã tồn tại trong hệ thống, vui lòng kiểm tra lại thông tin',
           };
         case 'P2003':
         case 'P2014':
@@ -92,7 +108,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
           return {
             status: HttpStatus.NOT_FOUND,
             error: 'Not Found',
-            message: 'Không tìm thấy bản ghi cần xử lý. Dữ liệu có thể vừa bị thay đổi',
+            message:
+              'Không tìm thấy bản ghi cần xử lý. Dữ liệu có thể vừa bị thay đổi',
           };
         case 'P2034':
           return {

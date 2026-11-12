@@ -25,7 +25,12 @@ const memberActor = {
 };
 
 /** Thủ thư thực hiện thao tác, lấy từ JWT trong thực tế. */
-const ACTOR = { id: 'user-02', email: 'thuthu@librobe.vn' };
+const ACTOR = {
+  id: 'user-02',
+  email: 'thuthu@librobe.vn',
+  role: UserRole.LIBRARIAN,
+  memberId: null,
+};
 
 describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => {
   let service: BorrowingSlipsService;
@@ -117,6 +122,7 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
         findMany: vi.fn().mockResolvedValue([]),
       },
       $executeRaw: vi.fn().mockResolvedValue(1),
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'mem-01' }]),
       $transaction: vi.fn(),
     };
 
@@ -211,7 +217,7 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
   });
 
   describe('Tình huống 2 - Vượt quá hạn mức mượn', () => {
-    it('đang mượn 4/5, xin mượn thêm 2 cuốn -> 400 và không tạo phiếu', async () => {
+    it('đang mượn 4/5, xin mượn thêm 2 cuốn -> 409 và không tạo phiếu', async () => {
       prismaMock.member.findUnique.mockResolvedValue({
         ...mockMember,
         currentBorrowedCount: 4,
@@ -230,13 +236,13 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
             { bookId: 'book-02', quantity: 1 },
           ],
         }),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(ConflictException);
 
       expect(prismaMock.borrowingSlip.create).not.toHaveBeenCalled();
       expect(prismaMock.book.updateMany).not.toHaveBeenCalled();
     });
 
-    it('thông điệp lỗi nêu rõ số cuốn còn được mượn và số cuốn yêu cầu', async () => {
+    it('lỗi vượt hạn mức trả đủ code và số lượng cho frontend', async () => {
       prismaMock.member.findUnique.mockResolvedValue({
         ...mockMember,
         borrowings: Array.from({ length: 4 }, (_, i) => ({
@@ -254,7 +260,19 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
             { bookId: 'book-02', quantity: 1 },
           ],
         }),
-      ).rejects.toThrow(/còn được mượn thêm 1 cuốn nhưng yêu cầu 2 cuốn/);
+      ).rejects.toMatchObject({
+        status: 409,
+        response: {
+          code: 'BORROW_LIMIT_EXCEEDED',
+          message: 'Vượt hạn mức mượn sách',
+          details: {
+            maxBorrowLimit: 5,
+            currentBorrowedCount: 4,
+            requestedQuantity: 2,
+            remainingBorrowLimit: 1,
+          },
+        },
+      });
     });
 
     it('còn nợ tiền phạt chưa thanh toán -> 400', async () => {
@@ -348,6 +366,92 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
           data: { currentBorrowedCount: { increment: 2 } },
         }),
       );
+    });
+
+    it('duyệt đúng bằng hạn mức và khóa member trước khi đọc điều kiện mượn', async () => {
+      mockPendingSlip([{ id: 'item-01', bookId: 'book-01', quantity: 3 }]);
+      await service.approve('slip-01', ACTOR);
+      expect(prismaMock.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+        prismaMock.member.findUnique.mock.invocationCallOrder[0],
+      );
+      expect(prismaMock.member.update).toHaveBeenCalledWith({
+        where: { id: 'mem-01' },
+        data: { currentBorrowedCount: { increment: 3 } },
+      });
+      expect(prismaMock.$transaction).toHaveBeenCalledWith(
+        expect.any(Function),
+        { isolationLevel: 'ReadCommitted' },
+      );
+    });
+
+    it.each([3, 5, 9])(
+      'đang giữ %i cuốn: từ chối thêm 3, giữ nguyên mọi dữ liệu',
+      async (count) => {
+        mockPendingSlip([{ id: 'item-01', bookId: 'book-01', quantity: 3 }]);
+        prismaMock.member.findUnique.mockResolvedValue({
+          ...mockMember,
+          // Eligibility uses the actual loans even if the cached count is stale.
+          currentBorrowedCount: 0,
+          borrowings: Array.from({ length: count }, () => ({
+            status: 'BORROWED',
+            dueDate: new Date(Date.now() + 10 * DAY),
+          })),
+        });
+        await expect(service.approve('slip-01', ACTOR)).rejects.toMatchObject({
+          status: 409,
+          response: {
+            code: 'BORROW_LIMIT_EXCEEDED',
+            details: {
+              maxBorrowLimit: 5,
+              currentBorrowedCount: count,
+              requestedQuantity: 3,
+              remainingBorrowLimit: Math.max(0, 5 - count),
+            },
+          },
+        });
+        expect(prismaMock.borrowingSlip.updateMany).not.toHaveBeenCalled();
+        expect(prismaMock.borrowingSlipItem.updateMany).not.toHaveBeenCalled();
+        expect(prismaMock.book.updateMany).not.toHaveBeenCalled();
+        expect(prismaMock.member.update).not.toHaveBeenCalled();
+        expect(reservationsMock.fulfillForBorrow).not.toHaveBeenCalled();
+      },
+    );
+
+    it('phiếu bị chặn có thể duyệt lại khi số sách đang giữ giảm sau trả sách', async () => {
+      mockPendingSlip([{ id: 'item-01', bookId: 'book-01', quantity: 3 }]);
+      prismaMock.member.findUnique.mockResolvedValueOnce({
+        ...mockMember,
+        borrowings: [...mockMember.borrowings, mockMember.borrowings[0]],
+      });
+      await expect(service.approve('slip-01', ACTOR)).rejects.toThrow(
+        ConflictException,
+      );
+      // The next read sees the two remaining loans after a return.
+      await service.approve('slip-01', ACTOR);
+      expect(prismaMock.member.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('đọc lại phiếu sau khi chờ khóa để phát hiện phiếu vừa được duyệt', async () => {
+      prismaMock.borrowingSlip.findUnique
+        .mockResolvedValueOnce({ memberId: 'mem-01' })
+        .mockResolvedValueOnce({ status: BorrowingSlipStatus.BORROWED });
+      await expect(service.approve('slip-01', ACTOR)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(prismaMock.member.findUnique).not.toHaveBeenCalled();
+      expect(prismaMock.borrowingSlip.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('kiểm tra lại thẻ đã bị khóa kể từ lúc lập phiếu', async () => {
+      mockPendingSlip([{ id: 'item-01', bookId: 'book-01', quantity: 1 }]);
+      prismaMock.member.findUnique.mockResolvedValue({
+        ...mockMember,
+        status: MemberStatus.SUSPENDED,
+      });
+      await expect(service.approve('slip-01', ACTOR)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prismaMock.borrowingSlip.updateMany).not.toHaveBeenCalled();
     });
 
     it('phiếu đã được duyệt trước đó -> 409 (chống double click)', async () => {
@@ -460,6 +564,93 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
         ).not.toHaveBeenCalled();
       },
     );
+  });
+
+  describe('Member tự hủy phiếu gửi nhầm', () => {
+    const owner = { ...memberActor, email: 'member@librobe.vn' };
+    beforeEach(() => {
+      prismaMock.borrowingSlip.findUnique.mockResolvedValue({
+        id: 'slip-01',
+        memberId: 'mem-01',
+        status: BorrowingSlipStatus.PENDING_APPROVAL,
+        items: [
+          {
+            id: 'item-01',
+            bookId: 'book-01',
+            quantity: 2,
+            status: BorrowingItemStatus.PENDING,
+          },
+        ],
+      });
+      prismaMock.borrowingSlip.findUniqueOrThrow.mockResolvedValue({
+        id: 'slip-01',
+        status: BorrowingSlipStatus.CANCELLED,
+        items: [],
+      });
+    });
+
+    it('chủ phiếu hủy khi chờ duyệt, ghi audit và không thay đổi kho/hạn mức', async () => {
+      await service.cancel('slip-01', { reason: '  Gửi nhầm phiếu  ' }, owner);
+      expect(prismaMock.borrowingSlip.updateMany).toHaveBeenCalledWith({
+        where: { id: 'slip-01', status: BorrowingSlipStatus.PENDING_APPROVAL },
+        data: expect.objectContaining({
+          status: BorrowingSlipStatus.CANCELLED,
+          cancelledBy: owner.email,
+          cancelledById: owner.id,
+          cancelReason: 'Gửi nhầm phiếu',
+        }),
+      });
+      expect(prismaMock.borrowingSlipItem.updateMany).toHaveBeenCalled();
+      expect(prismaMock.member.update).not.toHaveBeenCalled();
+      expect(prismaMock.book.updateMany).not.toHaveBeenCalled();
+      expect(prismaMock.$executeRaw).not.toHaveBeenCalled();
+    });
+
+    it.each([null, 'mem-other'])(
+      'memberId=%s không được hủy phiếu người khác',
+      async (memberId) => {
+        await expect(
+          service.cancel(
+            'slip-01',
+            { reason: 'Gửi nhầm' },
+            { ...owner, memberId },
+          ),
+        ).rejects.toThrow(ForbiddenException);
+        expect(prismaMock.borrowingSlip.updateMany).not.toHaveBeenCalled();
+        expect(prismaMock.borrowingSlipItem.updateMany).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(
+      Object.values(BorrowingSlipStatus).filter(
+        (status) => status !== BorrowingSlipStatus.PENDING_APPROVAL,
+      ),
+    )('member không thể hủy trạng thái %s', async (status) => {
+      prismaMock.borrowingSlip.findUnique.mockResolvedValue({
+        memberId: 'mem-01',
+        status,
+        items: [],
+      });
+      await expect(
+        service.cancel('slip-01', { reason: 'Gửi nhầm' }, owner),
+      ).rejects.toThrow(ConflictException);
+      expect(prismaMock.borrowingSlip.updateMany).not.toHaveBeenCalled();
+      expect(prismaMock.member.update).not.toHaveBeenCalled();
+      expect(prismaMock.$executeRaw).not.toHaveBeenCalled();
+    });
+
+    it('đọc lại trạng thái sau khi chờ khóa, không hoàn kho phiếu vừa được duyệt', async () => {
+      prismaMock.borrowingSlip.findUnique
+        .mockResolvedValueOnce({ memberId: 'mem-01' })
+        .mockResolvedValueOnce({
+          memberId: 'mem-01',
+          status: BorrowingSlipStatus.BORROWED,
+        });
+      await expect(
+        service.cancel('slip-01', { reason: 'Gửi nhầm' }, owner),
+      ).rejects.toThrow(ConflictException);
+      expect(prismaMock.$executeRaw).not.toHaveBeenCalled();
+    });
   });
 
   describe('Tình huống 4 - Trả sách từng phần, tính phạt & bồi thường', () => {

@@ -36,6 +36,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import type { RenewalActor } from '../loan-policy/loan-eligibility.service.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
+import { ApiBorrowConflictResponse } from '../loan-policy/decorators/borrow-conflict-response.decorator.js';
 
 @ApiTags('Borrowings - Quản lý Mượn / Trả Sách')
 @ApiBearerAuth('JWT-auth')
@@ -158,13 +159,12 @@ export class BorrowingsController {
   @ApiBadRequestResponse({
     description:
       'Độc giả không đủ điều kiện: thẻ không ACTIVE, thẻ hết hạn, đang có sách quá hạn, còn nợ tiền phạt, ' +
-      'vượt hạn mức mượn, hoặc sách đã hết bản khả dụng tại thời điểm nhận request',
+      'hoặc sách đã hết bản khả dụng tại thời điểm nhận request',
   })
-  @ApiConflictResponse({
-    description:
-      'Tranh chấp tồn kho: bản sách cuối cùng vừa bị độc giả khác mượn trong lúc giao dịch đang xử lý. ' +
+  @ApiBorrowConflictResponse(
+    'BORROW_LIMIT_EXCEEDED kèm details hạn mức, hoặc tranh chấp tồn kho khi giao dịch đang xử lý. ' +
       'Toàn bộ giao dịch đã được rollback (không tạo phiếu, không trừ kho)',
-  })
+  )
   @ApiNotFoundResponse({
     description: 'Không tìm thấy độc giả hoặc cuốn sách',
   })
