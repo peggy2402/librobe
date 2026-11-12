@@ -16,6 +16,10 @@ import {
 import { LoanEligibilityService } from '../loan-policy/loan-eligibility.service.js';
 import type { RenewalActor } from '../loan-policy/loan-eligibility.service.js';
 import { LoanPolicyService } from '../loan-policy/loan-policy.service.js';
+import {
+  lockMemberLoans,
+  MEMBER_LOAN_TRANSACTION_OPTIONS,
+} from '../loan-policy/member-loan-lock.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ReservationsService } from '../reservations/reservations.service.js';
 import { BorrowBookDto } from './dto/borrow-book.dto.js';
@@ -161,15 +165,18 @@ export class BorrowingsService {
   }
 
   private async createLoanTransaction(dto: BorrowBookDto): Promise<Borrowing> {
-    const now = new Date();
-
-    if (dto.durationDays !== undefined && dto.durationDays > this.policy.maxLoanDays) {
+    if (
+      dto.durationDays !== undefined &&
+      dto.durationDays > this.policy.maxLoanDays
+    ) {
       throw new BadRequestException(
         `Thời hạn mượn tối đa theo chính sách thư viện là ${this.policy.maxLoanDays} ngày (yêu cầu ${dto.durationDays} ngày)`,
       );
     }
 
     const created = await this.prisma.$transaction(async (tx) => {
+      await lockMemberLoans(tx, dto.memberId);
+      const now = new Date();
       // 1. Điều kiện của độc giả: trạng thái thẻ, hạn thẻ, sách quá hạn,
       //    nợ phạt chưa thanh toán và hạn mức mượn (tính trên cả 2 luồng mượn).
       await this.eligibility.assertCanBorrow(dto.memberId, 1, tx, now);
@@ -230,7 +237,7 @@ export class BorrowingsService {
       await this.reservations.fulfillForBorrow(tx, dto.memberId, book.id, now);
 
       return borrowing;
-    });
+    }, MEMBER_LOAN_TRANSACTION_OPTIONS);
 
     return this.mapPrismaToEntity(created);
   }
@@ -246,9 +253,16 @@ export class BorrowingsService {
    *   độc lập, nộp phạt về sau qua `POST /api/borrowings/:id/pay-fine`.
    */
   async returnBook(id: string, dto: ReturnBookDto): Promise<Borrowing> {
-    const now = new Date();
-
     const updated = await this.prisma.$transaction(async (tx) => {
+      const owner = await tx.borrowing.findUnique({
+        where: { id },
+        select: { memberId: true },
+      });
+      if (!owner) {
+        throw new NotFoundException(`Không tìm thấy phiếu mượn với ID "${id}"`);
+      }
+      await lockMemberLoans(tx, owner.memberId);
+      const now = new Date();
       const borrowing = await tx.borrowing.findUnique({
         where: { id },
         select: {
@@ -284,8 +298,10 @@ export class BorrowingsService {
       // lúc sách còn đang quá hạn), đồng thời nếu phần đã thu vẫn đủ phủ khoản
       // phạt cuối cùng thì giữ nguyên trạng thái "đã thanh toán".
       const accruedFine = Math.max(lateFee, borrowing.fineAmount);
-      const alreadySettled = borrowing.finePaid && borrowing.fineAmount >= accruedFine;
-      const fineSettled = accruedFine <= 0 ? true : alreadySettled || (dto.finePaid ?? false);
+      const alreadySettled =
+        borrowing.finePaid && borrowing.fineAmount >= accruedFine;
+      const fineSettled =
+        accruedFine <= 0 ? true : alreadySettled || (dto.finePaid ?? false);
 
       // Chỉ bản ghi còn `returnDate IS NULL` mới được cập nhật -> chống trả sách trùng.
       const claimed = await tx.borrowing.updateMany({
@@ -333,7 +349,7 @@ export class BorrowingsService {
         where: { id },
         include: { member: true, book: true },
       });
-    });
+    }, MEMBER_LOAN_TRANSACTION_OPTIONS);
 
     return this.mapPrismaToEntity(updated);
   }
@@ -596,7 +612,9 @@ export class BorrowingsService {
       select: { transactionCode: true },
     });
 
-    const lastSequence = last ? Number.parseInt(last.transactionCode.slice(prefix.length), 10) : 0;
+    const lastSequence = last
+      ? Number.parseInt(last.transactionCode.slice(prefix.length), 10)
+      : 0;
     const nextSequence = Number.isFinite(lastSequence) ? lastSequence + 1 : 1;
 
     return `${prefix}${nextSequence.toString().padStart(4, '0')}`;

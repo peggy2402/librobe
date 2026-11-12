@@ -101,6 +101,7 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
         findMany: vi.fn().mockResolvedValue([]),
       },
       $executeRaw: vi.fn().mockResolvedValue(1),
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'mem-01' }]),
       $transaction: vi.fn(),
     };
 
@@ -201,7 +202,9 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
         bookId: 'book-01',
       });
       const spanDays = Math.round(
-        (new Date(result.dueDate).getTime() - new Date(result.borrowDate).getTime()) / DAY,
+        (new Date(result.dueDate).getTime() -
+          new Date(result.borrowDate).getTime()) /
+          DAY,
       );
 
       expect(spanDays).toBe(14);
@@ -234,7 +237,7 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
   // TÌNH HUỐNG 2 - Vượt quá giới hạn mượn
   // ---------------------------------------------------------------------------
   describe('Tình huống 2 - Vượt quá giới hạn mượn', () => {
-    it('đang mượn 5/5 cuốn -> từ chối 400 và KHÔNG thay đổi tồn kho', async () => {
+    it('đang mượn 5/5 cuốn -> từ chối 409 và KHÔNG thay đổi tồn kho', async () => {
       prismaMock.member.findUnique.mockResolvedValue(
         buildMember({
           currentBorrowedCount: 5,
@@ -248,7 +251,7 @@ describe('BorrowingsService - Nghiệp vụ mượn / trả / gia hạn / phạt
 
       await expect(
         service.borrowBook({ memberId: 'mem-01', bookId: 'book-01' }),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(ConflictException);
 
       expect(prismaMock.borrowing.create).not.toHaveBeenCalled();
       expect(prismaMock.book.updateMany).not.toHaveBeenCalled();
