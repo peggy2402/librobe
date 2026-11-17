@@ -86,8 +86,15 @@ const auth = {
 
     try {
       const res = await api.get('/api/auth/me');
-      api.setCurrentUser(res.user);
-      this.updateUserUI(res.user);
+
+      // `POST /auth/login` trả `{ accessToken, user: {...} }` còn
+      // `GET /auth/me` trả thẳng profile ở cấp 1, KHÔNG bọc trong `user`.
+      // Code cũ luôn đọc `res.user` nên sau mỗi lần tải lại trang, currentUser
+      // bị xóa khỏi localStorage và vai trò trở thành "không xác định".
+      const profile = res?.user ?? res;
+
+      api.setCurrentUser(profile);
+      this.updateUserUI(profile);
 
       if (authWrapper) authWrapper.style.display = 'none';
       if (appLayout) appLayout.style.display = 'flex';
@@ -354,6 +361,17 @@ const auth = {
    * `data-require-role="ADMIN,LIBRARIAN"` vào phần tử trong HTML.
    */
   applyRoleVisibility(role) {
+    // Không xác định được vai trò thì KHÔNG ẩn gì cả.
+    //
+    // Đây là lựa chọn có chủ ý: lớp ẩn/hiện này chỉ để tránh cho người dùng
+    // bấm vào thứ họ không có quyền, còn chốt chặn thật nằm ở RolesGuard phía
+    // backend. Nếu ẩn khi chưa biết vai trò thì một lỗi nhỏ ở luồng lấy profile
+    // sẽ làm trống toàn bộ nút bấm của giao diện — đúng lỗi vừa xảy ra.
+    if (!role) {
+      console.warn('[auth] Chưa xác định được vai trò, bỏ qua bước ẩn/hiện theo quyền');
+      return;
+    }
+
     document.querySelectorAll('[data-require-role]').forEach((el) => {
       const allowed = (el.getAttribute('data-require-role') || '')
         .split(',')
