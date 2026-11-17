@@ -45,6 +45,7 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 })
 @Controller('borrowings')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
 export class BorrowingsController {
   constructor(private readonly borrowingsService: BorrowingsService) {}
 

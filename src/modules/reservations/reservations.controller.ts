@@ -22,6 +22,8 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { UserRole } from '../../common/enums/user-role.enum.js';
+import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { CancelReservationDto } from './dto/cancel-reservation.dto.js';
@@ -35,6 +37,7 @@ import { ReservationsService } from './reservations.service.js';
 @ApiUnauthorizedResponse({ description: 'Thiếu Bearer Token hoặc Token không hợp lệ/hết hạn' })
 @Controller('reservations')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
 export class ReservationsController {
   constructor(private readonly reservationsService: ReservationsService) {}
 

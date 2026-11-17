@@ -48,6 +48,7 @@ import { LoanRenewalHistory } from '../borrowings/entities/loan-renewal.entity.j
 })
 @Controller('borrowing-slips')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
 export class BorrowingSlipsController {
   constructor(private readonly slipsService: BorrowingSlipsService) {}
 

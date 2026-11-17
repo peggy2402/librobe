@@ -41,6 +41,7 @@ import { MembersService } from './members.service.js';
 @ApiForbiddenResponse({ description: 'Tài khoản không có vai trò phù hợp để thực hiện thao tác này' })
 @Controller('members')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN, UserRole.LIBRARIAN)
 export class MembersController {
   constructor(private readonly membersService: MembersService) {}
 
