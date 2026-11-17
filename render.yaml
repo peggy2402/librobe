@@ -3,23 +3,38 @@ services:
     name: librobe
     runtime: node
     plan: free
-    region: singapore
-    buildCommand: npm install && npm run build
+    # Service dang chay thuc te o us-west1 (Render "oregon"), khong phai singapore.
+    # Render KHONG doi region tai cho: muon chuyen phai xoa va tao lai service.
+    region: oregon
+    # --include=dev: ep npm cai ca devDependencies du NODE_ENV=production,
+    # vi `npm run build` can @nestjs/cli + typescript + prisma luc build.
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm run start:prod
     healthCheckPath: /api/health
     envVars:
+      # KHONG dat key PORT: Render tu cap, src/main.ts doc process.env.PORT
+      - key: NODE_VERSION
+        value: '22'
       - key: NODE_ENV
         value: production
+
+      # --- Ket noi Supabase (dan tay trong Render Dashboard) ---
       - key: DATABASE_URL
         sync: false
       - key: DIRECT_URL
         sync: false
+
+      # --- Xac thuc ---
       - key: JWT_SECRET
         sync: false
       - key: ADMIN_USERNAME
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+
+      # --- Email dat lai mat khau ---
+      # MAIL_PROVIDER=console bi mail.service.ts chan khi NODE_ENV=production,
+      # nen RESEND_API_KEY va MAIL_FROM buoc phai la gia tri that.
       - key: APP_BASE_URL
         sync: false
       - key: MAIL_PROVIDER
@@ -30,3 +45,43 @@ services:
         sync: false
       - key: RESET_TOKEN_TTL_MINUTES
         value: '20'
+
+      # --- Chinh sach muon / tra ---
+      - key: LOAN_DEFAULT_DAYS
+        value: '14'
+      - key: LOAN_MAX_DAYS
+        value: '30'
+
+      # --- Phat tre han ---
+      - key: LOAN_FINE_PER_DAY
+        value: '5000'
+      - key: LOAN_FINE_GRACE_DAYS
+        value: '0'
+
+      # --- Gia han ---
+      - key: LOAN_RENEW_MAX_COUNT
+        value: '1'
+      - key: LOAN_RENEW_DAYS
+        value: '7'
+      - key: LOAN_RENEW_MAX_DAYS
+        value: '14'
+      - key: LOAN_RENEW_WINDOW_DAYS
+        value: '0'
+      - key: LOAN_RENEW_BLOCK_WHEN_RESERVED
+        value: 'true'
+
+      # --- Dieu kien chan muon moi ---
+      - key: LOAN_BLOCK_BORROW_ON_UNPAID_FINE
+        value: 'true'
+      - key: LOAN_BLOCK_BORROW_ON_OVERDUE
+        value: 'true'
+
+      # --- The doc gia ---
+      - key: MEMBER_DEFAULT_BORROW_LIMIT
+        value: '5'
+
+      # --- Dat truoc ---
+      - key: RESERVATION_HOLD_DAYS
+        value: '3'
+      - key: RESERVATION_MAX_ACTIVE
+        value: '3'
