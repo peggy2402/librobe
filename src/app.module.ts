@@ -9,6 +9,7 @@ import { BorrowingsModule } from './modules/borrowings/borrowings.module.js';
 import { BorrowingSlipsModule } from './modules/borrowing-slips/borrowing-slips.module.js';
 import { CategoriesModule } from './modules/categories/categories.module.js';
 import { LoanPolicyModule } from './modules/loan-policy/loan-policy.module.js';
+import { MeModule } from './modules/me/me.module.js';
 import { MembersModule } from './modules/members/members.module.js';
 import { PrismaModule } from './modules/prisma/prisma.module.js';
 import { ReservationsModule } from './modules/reservations/reservations.module.js';
@@ -41,6 +42,7 @@ const hasObserveKey = Boolean(process.env.OBSERVE_APP_KEY && process.env.OBSERVE
     ReservationsModule,
     BorrowingsModule,
     BorrowingSlipsModule,
+    MeModule,
     StatsModule,
   ],
   controllers: [AppController],
