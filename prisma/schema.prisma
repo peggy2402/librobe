@@ -231,6 +231,10 @@ model BorrowingSlip {
   cancelledByUser User?            @relation("SlipCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
   cancelReason String?             @map("cancel_reason")
   notes        String?
+  /// Số ngày độc giả xin mượn, lưu lại từ lúc lập phiếu.
+  /// Cần thiết vì hạn trả được tính lại tại thời điểm thủ thư DUYỆT (lúc sách
+  /// thực sự rời kệ), nên phải biết người mượn đã xin bao nhiêu ngày.
+  expectedReturnDays Int?           @map("expected_return_days")
   totalFine    Float               @default(0) @map("total_fine")
   finePaid     Boolean             @default(false) @map("fine_paid")
   /// Thời điểm thanh toán phạt — phân biệt với trạng thái COMPLETED (đã trả hết sách).

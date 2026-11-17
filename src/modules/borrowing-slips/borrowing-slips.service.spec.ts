@@ -264,6 +264,9 @@ describe('BorrowingSlipsService - ERP Master-Detail & Approval Workflow', () => 
         slipNumber: 'SLIP-2026-0001',
         status: BorrowingSlipStatus.PENDING_APPROVAL,
         memberId: 'mem-01',
+        // Phiếu lập hôm nay, xin mượn 14 ngày
+        createdAt: new Date(),
+        expectedReturnDays: 14,
         dueDate: new Date(Date.now() + 14 * DAY),
         items,
       });
