@@ -237,7 +237,11 @@ export class BorrowingSlipsService {
 
       // 3. Tạo phiếu mượn (Master - Detail). Chưa trừ kho: tồn kho chỉ bị trừ
       //    khi chứng từ được phê duyệt ở bước `approve`.
-      const dueDate = this.policy.resolveDueDate(now, dto.expectedReturnDays);
+      //
+      //    `dueDate` ở đây chỉ là HẠN TRẢ TẠM TÍNH để độc giả biết trước. Hạn
+      //    chính thức được tính lại lúc duyệt, vì sách chỉ rời kệ từ lúc đó.
+      const requestedDays = this.policy.resolveLoanDays(dto.expectedReturnDays);
+      const dueDate = this.policy.resolveDueDate(now, requestedDays);
       const slipNumber = await this.nextSlipNumber(tx, now);
 
       return tx.borrowingSlip.create({
@@ -246,6 +250,7 @@ export class BorrowingSlipsService {
           memberId: dto.memberId,
           status: BorrowingSlipStatus.PENDING_APPROVAL,
           dueDate,
+          expectedReturnDays: requestedDays,
           notes: dto.notes?.trim() || null,
           items: {
             create: consolidatedItems.map((item) => {
@@ -303,12 +308,19 @@ export class BorrowingSlipsService {
       const totalQty = slip.items.reduce((sum, item) => sum + item.quantity, 0);
       await this.eligibility.assertCanBorrow(slip.memberId, totalQty, tx, now);
 
+      // Hạn trả tính lại từ THỜI ĐIỂM DUYỆT, không giữ giá trị tạm tính lúc
+      // lập phiếu. Sách chỉ rời kệ khi được duyệt, nên nếu thủ thư duyệt muộn
+      // 2 ngày mà vẫn giữ hạn cũ thì độc giả bị trừ oan 2 ngày mượn.
+      const requestedDays = this.resolveRequestedLoanDays(slip);
+      const dueDate = this.policy.resolveDueDate(now, requestedDays);
+
       // Chốt quyền xử lý chứng từ: chỉ một request đi tiếp được.
       const claimed = await tx.borrowingSlip.updateMany({
         where: { id, status: BorrowingSlipStatus.PENDING_APPROVAL },
         data: {
           status: BorrowingSlipStatus.BORROWED,
           borrowDate: now,
+          dueDate,
           approvedAt: now,
           approvedBy: actor.email,
           approvedById: actor.id,
@@ -891,6 +903,36 @@ export class BorrowingSlipsService {
     });
 
     return this.mapSlipToEntity(updated);
+  }
+
+  /**
+   * Số ngày độc giả đã xin mượn.
+   *
+   * Ưu tiên giá trị lưu lúc lập phiếu. Với các phiếu tạo trước khi có cột
+   * `expected_return_days`, suy ra từ khoảng cách giữa hạn trả tạm tính và
+   * thời điểm lập phiếu — đúng bằng số ngày đã xin.
+   */
+  private resolveRequestedLoanDays(slip: {
+    expectedReturnDays?: number | null;
+    dueDate?: Date | string | null;
+    createdAt?: Date | string | null;
+  }): number {
+    if (slip.expectedReturnDays && slip.expectedReturnDays > 0) {
+      return slip.expectedReturnDays;
+    }
+
+    // Thiếu mốc thời gian thì lùi về thời hạn mặc định thay vì để ném TypeError
+    // — một lỗi đọc dữ liệu không nên biến thao tác duyệt phiếu thành lỗi 500.
+    if (!slip.dueDate || !slip.createdAt) {
+      return this.policy.defaultLoanDays;
+    }
+
+    const inferred = Math.round(
+      (new Date(slip.dueDate).getTime() - new Date(slip.createdAt).getTime()) /
+        (24 * 60 * 60 * 1000),
+    );
+
+    return Number.isFinite(inferred) && inferred > 0 ? inferred : this.policy.defaultLoanDays;
   }
 
   private async nextSlipNumber(tx: PrismaTx, now: Date): Promise<string> {
