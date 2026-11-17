@@ -655,6 +655,40 @@
   </div>
 
   <!-- Modal 3: Cấp Thẻ Độc Giả -->
+  <!-- Modal: Trả sách từng phần -->
+  <div id="modal-return-items" class="modal-backdrop">
+    <div class="modal-dialog">
+      <div class="bottom-sheet-handle"></div>
+      <div class="modal-header">
+        <div class="modal-title">Ghi Nhận Trả Sách</div>
+        <button class="modal-close" data-close-modal="modal-return-items">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+      <form id="return-items-form">
+        <div class="modal-body">
+          <input type="hidden" id="return-slip-id">
+          <div style="margin-bottom:12px;font-size:0.875rem;color:var(--text-secondary);">
+            Phiếu: <strong id="return-slip-number"></strong>
+          </div>
+          <div id="return-items-body"></div>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:0.875rem;">
+            <input type="checkbox" id="return-fine-paid">
+            <span>Độc giả nộp tiền phạt ngay tại quầy</span>
+          </label>
+          <div style="margin-top:8px;font-size:0.75rem;color:var(--text-muted);">
+            Bỏ trống ô trên nghĩa là khoản phạt được ghi nhận thành nợ. Sách vẫn được ghi là đã trả,
+            tiền phạt thu sau bằng nút "Thu phạt".
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close-modal="modal-return-items">Hủy</button>
+          <button type="submit" class="btn btn-primary">Xác Nhận Trả Sách</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div id="modal-new-member" class="modal-backdrop">
     <div class="modal-dialog">
       <div class="bottom-sheet-handle"></div>
