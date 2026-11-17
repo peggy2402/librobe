@@ -1,39 +1,51 @@
-import { INestApplication } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { App } from 'supertest/types.js';
-import { AppModule } from './../src/app.module.js';
+import { closeTestApp, createTestApp, TestContext } from './helpers/test-app.js';
 
+/**
+ * Smoke test cho các route gốc.
+ *
+ * Trước đây file này tự dựng app bằng `createNestApplication()` trần, không đặt
+ * `setGlobalPrefix('api')` như `main.ts`, nên nó kiểm tra `/health` trong khi
+ * production phục vụ `/api/health` — tức là test không phản ánh hành vi thật.
+ * Nay dùng chung helper `createTestApp()` để cấu hình giống production.
+ *
+ * Kỳ vọng `/` -> `/api/docs` cũng đã lạc hậu: từ commit 9986f08 (thêm admin
+ * dashboard), route gốc chuyển hướng về `/admin`. Swagger được liên kết từ
+ * sidebar của dashboard chứ không còn là trang đích của `/`.
+ */
 describe('AppController (e2e)', () => {
-  let app: INestApplication<App>;
+  let ctx: TestContext;
 
-  beforeEach(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
+  beforeAll(async () => {
+    ctx = await createTestApp();
+  }, 60_000);
 
-    app = moduleFixture.createNestApplication();
-    await app.init();
+  afterAll(async () => {
+    if (ctx) await closeTestApp(ctx);
   });
 
-  it('/ (GET) - redirect to Swagger Docs', () => {
-    return request(app.getHttpServer())
-      .get('/')
-      .expect(302)
-      .expect('Location', '/api/docs');
+  it('GET / — chuyển hướng về trang quản trị /admin', async () => {
+    const res = await request(ctx.app.getHttpServer()).get('/');
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/admin');
   });
 
-  it('/health (GET) - returns health status', () => {
-    return request(app.getHttpServer())
-      .get('/health')
-      .expect(200)
-      .expect((res) => {
-        expect(res.body.status).toBe('ok');
-        expect(res.body.docs).toBe('/api/docs');
-      });
+  it('GET /dashboard — cũng chuyển hướng về /admin', async () => {
+    const res = await request(ctx.app.getHttpServer()).get('/dashboard');
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/admin');
   });
 
-  afterEach(async () => {
-    await app.close();
+  it('GET /api/health — trả về trạng thái máy chủ', async () => {
+    const res = await request(ctx.app.getHttpServer()).get('/api/health');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+    expect(res.body.docs).toBe('/api/docs');
+  });
+
+  it('GET /api/health — không cần xác thực', async () => {
+    const res = await ctx.anon().get('/api/health');
+    expect(res.status).toBe(200);
   });
 });
