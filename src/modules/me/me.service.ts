@@ -1,11 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { BorrowingSlipStatus } from '@prisma/client';
 import { PaginatedResponseDto } from '../../common/dto/pagination.dto.js';
+import { UserRole } from '../../common/enums/user-role.enum.js';
 import { BorrowingSlipsService, SlipActor } from '../borrowing-slips/borrowing-slips.service.js';
 import { BorrowingSlipEntity } from '../borrowing-slips/entities/borrowing-slip.entity.js';
 import { BorrowingsService } from '../borrowings/borrowings.service.js';
 import { Borrowing } from '../borrowings/entities/borrowing.entity.js';
-import { LoanEligibilityService } from '../loan-policy/loan-eligibility.service.js';
+import { LoanEligibilityService, RenewalActor } from '../loan-policy/loan-eligibility.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { Reservation } from '../reservations/entities/reservation.entity.js';
 import { ReservationsService } from '../reservations/reservations.service.js';
@@ -17,11 +18,17 @@ import {
   RenewMyBorrowingSlipDto,
 } from './dto/me-request.dto.js';
 
-/** Người gọi, lấy từ JWT. `memberId` đã được `MemberCardGuard` bảo đảm tồn tại. */
+/**
+ * Người gọi, lấy từ JWT. `memberId` đã được `MemberCardGuard` bảo đảm tồn tại.
+ *
+ * `role` cần cho các service nghiệp vụ tự kiểm tra quyền sở hữu (`RenewalActor`).
+ * `JwtAuthGuard` gán cả bản ghi `User` vào `request.user` nên trường này luôn có.
+ */
 export interface MeActor {
   id: string;
   email: string;
   memberId: string;
+  role: UserRole;
 }
 
 @Injectable()
@@ -72,7 +79,7 @@ export class MeService {
 
   async getMySlip(actor: MeActor, slipId: string): Promise<BorrowingSlipEntity> {
     await this.assertOwnsSlip(actor, slipId);
-    return this.slips.findOne(slipId);
+    return this.slips.findOne(slipId, this.toRenewalActor(actor));
   }
 
   async createMySlip(
@@ -109,7 +116,7 @@ export class MeService {
     return this.slips.cancel(
       slipId,
       { reason: dto.reason?.trim() || 'Độc giả tự hủy qua ứng dụng' },
-      this.toSlipActor(actor),
+      { ...this.toSlipActor(actor), ...this.toRenewalActor(actor) },
     );
   }
 
@@ -122,11 +129,15 @@ export class MeService {
 
     // Toàn bộ luật gia hạn (chưa quá hạn, chưa hết lượt, không ai đặt trước)
     // do service nghiệp vụ quyết định — không nhân bản luật ở đây.
-    return this.slips.renew(slipId, {
-      extraDays: dto.extraDays,
-      notes: dto.notes,
-      renewedBy: actor.email,
-    });
+    return this.slips.renew(
+      slipId,
+      {
+        extraDays: dto.extraDays,
+        notes: dto.notes,
+        renewedBy: actor.email,
+      },
+      this.toRenewalActor(actor),
+    );
   }
 
   async getMySlipRenewals(actor: MeActor, slipId: string) {
@@ -272,5 +283,14 @@ export class MeService {
 
   private toSlipActor(actor: MeActor): SlipActor {
     return { id: actor.id, email: actor.email };
+  }
+
+  /**
+   * Hình dạng actor mà các service nghiệp vụ dùng để tự kiểm tra quyền sở hữu.
+   * `/api/me/*` đã chặn ở `assertOwnsSlip`, nhưng vẫn truyền đủ để service
+   * không phải tin vào lời gọi — hai lớp kiểm tra độc lập.
+   */
+  private toRenewalActor(actor: MeActor): RenewalActor {
+    return { id: actor.id, role: actor.role, memberId: actor.memberId };
   }
 }

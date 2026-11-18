@@ -44,6 +44,10 @@ if (matched) {
 process.env.DATABASE_URL = target;
 process.env.DIRECT_URL = target;
 
+// Ghi lại chính biến này để các spec dùng `describe.skipIf(!TEST_DATABASE_URL)`
+// (test/borrowing-limits.e2e-spec.ts) cũng chạy, thay vì âm thầm bị bỏ qua.
+process.env.TEST_DATABASE_URL = target;
+
 // Khóa cứng tham số nghiệp vụ để assertion không phụ thuộc .env của máy chạy test.
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'librobe-e2e-secret';
 process.env.LOAN_DEFAULT_DAYS = '14';
